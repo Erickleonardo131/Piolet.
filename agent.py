@@ -22,7 +22,29 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 load_dotenv()
 
 # ── Config OpenRouter ──────────────────────────────────────────────────────
-OPENROUTER_API_KEY = os.getenv("OPEN_ROUTER_KEY") or os.getenv("OPENROUTER_API_KEY", "")
+try:
+    import streamlit as st
+except Exception:  # pragma: no cover - fallback for non-Streamlit usage
+    st = None
+
+
+def _get_openrouter_api_key() -> str:
+    if st is not None:
+        try:
+            for key in ("OPEN_ROUTER_KEY", "OPENROUTER_API_KEY"):
+                value = st.secrets.get(key)
+                if value:
+                    return str(value).strip()
+        except Exception:
+            pass
+    for key in ("OPEN_ROUTER_KEY", "OPENROUTER_API_KEY"):
+        value = os.getenv(key)
+        if value:
+            return value.strip()
+    return ""
+
+
+OPENROUTER_API_KEY = _get_openrouter_api_key()
 DATA_PATH = "datos/videos_latest.csv"
 
 MODELOS_GRATUITOS = {
@@ -67,6 +89,10 @@ Responde siempre en español. Sé directo y específico, no genérico.
 
 
 def get_client() -> OpenAI:
+    if not OPENROUTER_API_KEY:
+        raise RuntimeError(
+            "Falta la API key de OpenRouter. Configura OPEN_ROUTER_KEY o OPENROUTER_API_KEY en Secrets."
+        )
     return OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=OPENROUTER_API_KEY,
@@ -826,3 +852,5 @@ if __name__ == "__main__":
         print(analisis_automatico())
     else:
         agente_interactivo()
+
+
