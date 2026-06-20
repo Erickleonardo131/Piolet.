@@ -23,6 +23,8 @@ TEST_USER = os.getenv("PIOLET_TEST_USER", "piolet")
 TEST_PASSWORD = os.getenv("PIOLET_TEST_PASSWORD", "piolet123")
 APIFY_MONTHLY_BUDGET = 5.0
 DATA_PATH = Path("datos/videos_latest.csv")
+THEME_STATE_KEY = "piolet_theme"
+DEFAULT_THEME = "light"
 
 
 def _page_icon() -> str:
@@ -36,29 +38,70 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-components.html(
-    """
-    <script>
-    (function () {
-      try {
-        const parentDoc = window.parent.document;
-        const bg = getComputedStyle(parentDoc.body).backgroundColor || "rgb(255,255,255)";
-        const parts = (bg.match(/\\d+/g) || [255, 255, 255]).map(Number);
-        const luminance = (0.299 * parts[0]) + (0.587 * parts[1]) + (0.114 * parts[2]);
-        parentDoc.documentElement.setAttribute("data-piolet-theme", luminance < 140 ? "dark" : "light");
-      } catch (e) {}
-    })();
-    </script>
-    """,
-    height=0,
-    width=0,
-)
+if THEME_STATE_KEY not in st.session_state:
+    st.session_state[THEME_STATE_KEY] = DEFAULT_THEME
+
+
+def apply_theme(theme: str) -> None:
+    components.html(
+        f"""
+        <script>
+        (function () {{
+          try {{
+            const theme = {theme!r};
+            const parentDoc = window.parent.document;
+            parentDoc.documentElement.setAttribute("data-piolet-theme", theme);
+            parentDoc.body.setAttribute("data-piolet-theme", theme);
+            window.parent.localStorage.setItem("piolet-theme", theme);
+          }} catch (e) {{}}
+        }})();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+apply_theme(st.session_state[THEME_STATE_KEY])
 
 st.markdown(
     """
     <style>
     html, body, [class*="css"] {
         font-family: 'Space Grotesk', 'Segoe UI', 'Aptos', 'Helvetica Neue', Arial, sans-serif !important;
+    }
+
+    html[data-piolet-theme="light"],
+    body[data-piolet-theme="light"],
+    html[data-piolet-theme="light"] .stApp,
+    body[data-piolet-theme="light"] .stApp,
+    html[data-piolet-theme="light"] [data-testid="stAppViewContainer"],
+    html[data-piolet-theme="light"] [data-testid="stHeader"],
+    html[data-piolet-theme="light"] [data-testid="stSidebar"],
+    html[data-piolet-theme="light"] .main {
+        background: #f6f7fb !important;
+        color: #111827 !important;
+    }
+
+    html[data-piolet-theme="dark"],
+    body[data-piolet-theme="dark"],
+    html[data-piolet-theme="dark"] .stApp,
+    body[data-piolet-theme="dark"] .stApp,
+    html[data-piolet-theme="dark"] [data-testid="stAppViewContainer"],
+    html[data-piolet-theme="dark"] [data-testid="stHeader"],
+    html[data-piolet-theme="dark"] [data-testid="stSidebar"],
+    html[data-piolet-theme="dark"] .main {
+        background: #0f172a !important;
+        color: #f8fafc !important;
+    }
+
+    html[data-piolet-theme="light"] .stApp,
+    html[data-piolet-theme="light"] [data-testid="stSidebar"],
+    html[data-piolet-theme="light"] [data-testid="stAppViewContainer"] > .main,
+    html[data-piolet-theme="dark"] .stApp,
+    html[data-piolet-theme="dark"] [data-testid="stSidebar"],
+    html[data-piolet-theme="dark"] [data-testid="stAppViewContainer"] > .main {
+        transition: background-color 180ms ease, color 180ms ease;
     }
 
     [data-testid="stToolbar"],
@@ -311,6 +354,20 @@ st.markdown(
     html[data-piolet-theme="light"] .apify-usage .usage-caption {
         color: #111111 !important;
     }
+
+    html[data-piolet-theme="light"] .sidebar-actions .stButton > button,
+    html[data-piolet-theme="light"] .sidebar-actions .stDownloadButton > button {
+        background: linear-gradient(135deg, #111827 0%, #374151 100%) !important;
+        color: #ffffff !important;
+        border-color: rgba(17, 24, 39, 0.2) !important;
+    }
+
+    html[data-piolet-theme="dark"] .sidebar-actions .stButton > button,
+    html[data-piolet-theme="dark"] .sidebar-actions .stDownloadButton > button {
+        background: linear-gradient(135deg, #e2e8f0 0%, #ffffff 100%) !important;
+        color: #0f172a !important;
+        border-color: rgba(226, 232, 240, 0.2) !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -524,6 +581,16 @@ def render_sidebar(df: pd.DataFrame, apify_spent: float | None) -> tuple[list[st
 
         st.divider()
         with st.container():
+            theme = st.session_state.get(THEME_STATE_KEY, DEFAULT_THEME)
+            theme_label = "oscuro" if theme == "light" else "claro"
+            if st.button(
+                f"Cambiar a modo {theme_label}",
+                type="secondary",
+                use_container_width=True,
+            ):
+                st.session_state[THEME_STATE_KEY] = "dark" if theme == "light" else "light"
+                apply_theme(st.session_state[THEME_STATE_KEY])
+                st.rerun()
             if st.button("Cerrar sesion", type="secondary", use_container_width=True):
                 st.session_state.logged_in = False
                 st.session_state.historial = []
