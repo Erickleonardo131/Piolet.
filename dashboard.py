@@ -23,7 +23,6 @@ TEST_USER = os.getenv("PIOLET_TEST_USER", "piolet")
 TEST_PASSWORD = os.getenv("PIOLET_TEST_PASSWORD", "piolet123")
 APIFY_MONTHLY_BUDGET = 5.0
 DATA_PATH = Path("datos/videos_latest.csv")
-SIDEBAR_VISIBLE_KEY = "piolet_sidebar_visible"
 
 
 def _page_icon() -> str:
@@ -36,9 +35,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-if SIDEBAR_VISIBLE_KEY not in st.session_state:
-    st.session_state[SIDEBAR_VISIBLE_KEY] = True
 
 st.markdown(
     """
@@ -96,6 +92,41 @@ st.markdown(
 
     section[data-testid="stSidebar"] * {
         box-sizing: border-box;
+    }
+
+    @media (max-width: 900px) {
+        html[data-piolet-sidebar="hidden"] section[data-testid="stSidebar"] {
+            display: none !important;
+        }
+
+        html[data-piolet-sidebar="hidden"] [data-testid="stAppViewContainer"] > .main {
+            margin-left: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+
+        section[data-testid="stSidebar"] {
+            width: 220px !important;
+            min-width: 220px !important;
+            max-width: 220px !important;
+        }
+
+        [data-testid="stAppViewContainer"] > .main {
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+            padding-top: 0.5rem !important;
+        }
+
+        [data-testid="stButton"] > button[kind="primary"],
+        [data-testid="stDownloadButton"] > button,
+        [data-testid="stDownloadButton"] a {
+            position: static !important;
+            min-width: 100% !important;
+            width: 100% !important;
+            right: auto !important;
+            bottom: auto !important;
+            margin-top: 0.75rem !important;
+        }
     }
 
     .piolet-brand {
@@ -733,47 +764,66 @@ def main() -> None:
     df, context_data = cargar_datos()
     apify_spent = apify_monthly_usage_usd()
 
-    if st.session_state.get(SIDEBAR_VISIBLE_KEY, True):
-        components.html(
-            """
-            <script>
-            (function () {
-              try {
-                const doc = window.parent.document;
-                doc.documentElement.setAttribute("data-piolet-sidebar", "visible");
-              } catch (e) {}
-            })();
-            </script>
-            """,
-            height=0,
-            width=0,
-        )
-    else:
-        components.html(
-            """
-            <script>
-            (function () {
-              try {
-                const doc = window.parent.document;
-                doc.documentElement.setAttribute("data-piolet-sidebar", "hidden");
-              } catch (e) {}
-            })();
-            </script>
-            """,
-            height=0,
-            width=0,
-        )
+    components.html(
+        """
+        <script>
+        (function () {
+          try {
+            const doc = window.parent.document;
+            const root = doc.documentElement;
+            const storageKey = "piolet-sidebar-visible";
+            const isMobile = window.matchMedia("(max-width: 900px)").matches || "ontouchstart" in window;
+            const readVisible = () => {
+              const value = window.parent.localStorage.getItem(storageKey);
+              return value === null ? true : value === "true";
+            };
+            const writeVisible = (visible) => {
+              root.setAttribute("data-piolet-sidebar", visible ? "visible" : "hidden");
+              window.parent.localStorage.setItem(storageKey, visible ? "true" : "false");
+            };
 
-    if st.session_state.get(SIDEBAR_VISIBLE_KEY, True):
-        ensure_sidebar_open()
+            writeVisible(readVisible());
+
+            if (isMobile && !window.__pioletSidebarSwipeInstalled) {
+              window.__pioletSidebarSwipeInstalled = true;
+              let touchStartX = 0;
+              let touchStartY = 0;
+              let touchStartTime = 0;
+
+              doc.addEventListener("touchstart", (event) => {
+                if (!event.touches || event.touches.length !== 1) return;
+                touchStartX = event.touches[0].clientX;
+                touchStartY = event.touches[0].clientY;
+                touchStartTime = Date.now();
+              }, { passive: true });
+
+              doc.addEventListener("touchend", (event) => {
+                if (!event.changedTouches || event.changedTouches.length !== 1) return;
+                const dx = event.changedTouches[0].clientX - touchStartX;
+                const dy = event.changedTouches[0].clientY - touchStartY;
+                const elapsed = Date.now() - touchStartTime;
+                const absDx = Math.abs(dx);
+                const absDy = Math.abs(dy);
+
+                if (elapsed > 800 || absDx < 60 || absDx < absDy) return;
+
+                const visible = readVisible();
+                if (dx < 0 && visible) {
+                  writeVisible(false);
+                } else if (dx > 0 && !visible) {
+                  writeVisible(true);
+                }
+              }, { passive: true });
+            }
+          } catch (e) {}
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
     plataformas, min_views = render_sidebar(df, apify_spent)
-    if st.session_state.get(SIDEBAR_VISIBLE_KEY, True):
-        ensure_sidebar_open()
-
-    toggle_label = "Ocultar filtros" if st.session_state.get(SIDEBAR_VISIBLE_KEY, True) else "Mostrar filtros"
-    if st.button(toggle_label, use_container_width=True):
-        st.session_state[SIDEBAR_VISIBLE_KEY] = not st.session_state.get(SIDEBAR_VISIBLE_KEY, True)
-        st.rerun()
 
     df_filtrado = df[
         (df["platform"].isin(plataformas)) &
