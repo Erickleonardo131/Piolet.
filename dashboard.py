@@ -525,7 +525,7 @@ def render_login() -> None:
 
         with st.form("login_form"):
             user = st.text_input("Usuario", placeholder="Usuario")
-            pwd = st.text_input("ContraseÃ±a", placeholder="ContraseÃ±a", type="password")
+            pwd = st.text_input("Contraseña", placeholder="Contraseña", type="password")
             submitted = st.form_submit_button("Entrar", use_container_width=True, type="secondary")
 
         if submitted:
