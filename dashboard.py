@@ -1,4 +1,4 @@
-"""
+﻿"""
 dashboard.py - Piolet Market Intelligence dashboard.
 Usage: streamlit run dashboard.py
 """
@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 APP_TITLE = "Piolet Market Intelligence"
-APP_ICON = Path(r"C:\Users\erick\AppData\Local\Temp\codex-clipboard-9d860758-22dc-4695-ac20-54aacb9faa69.png")
+APP_ICON = Path(r"C:\Users\erick\AppData\Local\Temp\codex-clipboard-b3614cf3-e1c0-4542-9c9b-8c6ae9fb66bb.png")
 TEST_USER = os.getenv("PIOLET_TEST_USER", "piolet")
 TEST_PASSWORD = os.getenv("PIOLET_TEST_PASSWORD", "piolet123")
 APIFY_MONTHLY_BUDGET = 5.0
@@ -26,7 +26,7 @@ DATA_PATH = Path("datos/videos_latest.csv")
 
 
 def _page_icon() -> str:
-    return str(APP_ICON) if APP_ICON.exists() else "🧊"
+    return str(APP_ICON)
 
 
 st.set_page_config(
@@ -471,10 +471,10 @@ def ensure_sidebar_open() -> None:
                   aria.includes("collapse") ||
                   aria.includes("open") ||
                   aria.includes("show") ||
-                  button.textContent.includes("«") ||
-                  button.textContent.includes("‹") ||
-                  button.textContent.includes("»") ||
-                  button.textContent.includes("›");
+                  button.textContent.includes("Â«") ||
+                  button.textContent.includes("â€¹") ||
+                  button.textContent.includes("Â»") ||
+                  button.textContent.includes("â€º");
                 if (!looksLikeSidebarToggle) continue;
                 if (expanded !== "true") {
                   button.click();
@@ -516,8 +516,6 @@ def render_login() -> None:
         with head_cols[0]:
             if APP_ICON.exists():
                 st.image(str(APP_ICON), width=58)
-            else:
-                st.markdown("⛏️")
         with head_cols[1]:
             st.markdown(
                 "<div class='login-title'>Piolet<br>Market Intelligence</div>"
@@ -527,7 +525,7 @@ def render_login() -> None:
 
         with st.form("login_form"):
             user = st.text_input("Usuario", placeholder="Usuario")
-            pwd = st.text_input("Contraseña", placeholder="Contraseña", type="password")
+            pwd = st.text_input("ContraseÃ±a", placeholder="ContraseÃ±a", type="password")
             submitted = st.form_submit_button("Entrar", use_container_width=True, type="secondary")
 
         if submitted:
@@ -706,7 +704,7 @@ def render_agent(context_data: str, df_filtrado: pd.DataFrame) -> None:
                 label_visibility="collapsed",
             )
         with c2:
-            enviar = st.form_submit_button("↗", use_container_width=True, type="secondary")
+            enviar = st.form_submit_button("â†—", use_container_width=True, type="secondary")
 
     if enviar and pregunta.strip():
         with st.chat_message("user"):
@@ -836,3 +834,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
