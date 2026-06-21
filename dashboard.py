@@ -23,6 +23,7 @@ TEST_USER = os.getenv("PIOLET_TEST_USER", "piolet")
 TEST_PASSWORD = os.getenv("PIOLET_TEST_PASSWORD", "piolet123")
 APIFY_MONTHLY_BUDGET = 5.0
 DATA_PATH = Path("datos/videos_latest.csv")
+SIDEBAR_VISIBLE_KEY = "piolet_sidebar_visible"
 
 
 def _page_icon() -> str:
@@ -35,6 +36,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+if SIDEBAR_VISIBLE_KEY not in st.session_state:
+    st.session_state[SIDEBAR_VISIBLE_KEY] = True
 
 st.markdown(
     """
@@ -51,6 +55,16 @@ st.markdown(
     [data-testid="stToolbar"],
     [data-testid="stDecoration"] {
         display: none !important;
+    }
+
+    html[data-piolet-sidebar="hidden"] section[data-testid="stSidebar"] {
+        display: none !important;
+    }
+
+    html[data-piolet-sidebar="hidden"] [data-testid="stAppViewContainer"] > .main {
+        margin-left: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
     }
 
     button[data-testid="collapsedControl"],
@@ -228,7 +242,6 @@ st.markdown(
 
     @media (max-width: 900px) {
         section[data-testid="stSidebar"] {
-            display: block !important;
             position: static !important;
             float: none !important;
             width: 100% !important;
@@ -237,30 +250,20 @@ st.markdown(
             transform: none !important;
             border-right: none !important;
             border-bottom: 1px solid rgba(15, 23, 42, 0.08) !important;
-            margin-bottom: 1rem !important;
+            margin-bottom: 0.75rem !important;
         }
 
         section[data-testid="stSidebar"] > div {
             width: 100% !important;
         }
 
-        [data-testid="stAppViewContainer"] {
-            display: flex !important;
-            flex-direction: column !important;
-        }
-
         [data-testid="stAppViewContainer"] > .main {
-            order: 2 !important;
             width: 100% !important;
             margin-left: 0 !important;
             max-width: 100% !important;
             padding-left: 1rem !important;
             padding-right: 1rem !important;
             padding-top: 0.5rem !important;
-        }
-
-        section[data-testid="stSidebar"] {
-            order: 1 !important;
         }
 
         [data-testid="stButton"] > button[kind="primary"],
@@ -730,9 +733,47 @@ def main() -> None:
     df, context_data = cargar_datos()
     apify_spent = apify_monthly_usage_usd()
 
-    ensure_sidebar_open()
+    if st.session_state.get(SIDEBAR_VISIBLE_KEY, True):
+        components.html(
+            """
+            <script>
+            (function () {
+              try {
+                const doc = window.parent.document;
+                doc.documentElement.setAttribute("data-piolet-sidebar", "visible");
+              } catch (e) {}
+            })();
+            </script>
+            """,
+            height=0,
+            width=0,
+        )
+    else:
+        components.html(
+            """
+            <script>
+            (function () {
+              try {
+                const doc = window.parent.document;
+                doc.documentElement.setAttribute("data-piolet-sidebar", "hidden");
+              } catch (e) {}
+            })();
+            </script>
+            """,
+            height=0,
+            width=0,
+        )
+
+    if st.session_state.get(SIDEBAR_VISIBLE_KEY, True):
+        ensure_sidebar_open()
     plataformas, min_views = render_sidebar(df, apify_spent)
-    ensure_sidebar_open()
+    if st.session_state.get(SIDEBAR_VISIBLE_KEY, True):
+        ensure_sidebar_open()
+
+    toggle_label = "Ocultar filtros" if st.session_state.get(SIDEBAR_VISIBLE_KEY, True) else "Mostrar filtros"
+    if st.button(toggle_label, use_container_width=True):
+        st.session_state[SIDEBAR_VISIBLE_KEY] = not st.session_state.get(SIDEBAR_VISIBLE_KEY, True)
+        st.rerun()
 
     df_filtrado = df[
         (df["platform"].isin(plataformas)) &
