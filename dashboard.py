@@ -91,7 +91,7 @@ st.markdown(
     html[data-piolet-theme="dark"] [data-testid="stHeader"],
     html[data-piolet-theme="dark"] [data-testid="stSidebar"],
     html[data-piolet-theme="dark"] .main {
-        background: #0f172a !important;
+        background: #0b1020 !important;
         color: #f8fafc !important;
     }
 
@@ -102,6 +102,36 @@ st.markdown(
     html[data-piolet-theme="dark"] [data-testid="stSidebar"],
     html[data-piolet-theme="dark"] [data-testid="stAppViewContainer"] > .main {
         transition: background-color 180ms ease, color 180ms ease;
+    }
+
+    html[data-piolet-theme="dark"] .stApp *,
+    html[data-piolet-theme="dark"] [data-testid="stSidebar"] *,
+    html[data-piolet-theme="dark"] [data-testid="stAppViewContainer"] .main * {
+        color: #f8fafc;
+    }
+
+    html[data-piolet-theme="dark"] [data-testid="stTextInput"] input,
+    html[data-piolet-theme="dark"] [data-testid="stNumberInput"] input,
+    html[data-piolet-theme="dark"] [data-baseweb="select"] input,
+    html[data-piolet-theme="dark"] textarea {
+        color: #111827 !important;
+        background: #ffffff !important;
+    }
+
+    html[data-piolet-theme="dark"] [data-testid="stTextInput"] input::placeholder,
+    html[data-piolet-theme="dark"] textarea::placeholder {
+        color: #6b7280 !important;
+    }
+
+    html[data-piolet-theme="dark"] [data-testid="stDataFrame"],
+    html[data-piolet-theme="dark"] [data-testid="stDataFrame"] * {
+        color: #111827 !important;
+    }
+
+    html[data-piolet-theme="dark"] [data-testid="stDataFrame"] {
+        background: #ffffff !important;
+        border-radius: 14px !important;
+        overflow: hidden !important;
     }
 
     [data-testid="stToolbar"],
@@ -580,17 +610,22 @@ def render_sidebar(df: pd.DataFrame, apify_spent: float | None) -> tuple[list[st
         min_views = st.number_input("Views minimos", min_value=0, value=1000, step=1000)
 
         st.divider()
+        current_theme = st.session_state.get(THEME_STATE_KEY, DEFAULT_THEME)
+        theme_choice = st.radio(
+            "Tema",
+            ["Claro", "Oscuro"],
+            index=0 if current_theme == "light" else 1,
+            horizontal=True,
+            label_visibility="collapsed",
+            key="theme_radio",
+        )
+        selected_theme = "light" if theme_choice == "Claro" else "dark"
+        if selected_theme != current_theme:
+            st.session_state[THEME_STATE_KEY] = selected_theme
+            apply_theme(selected_theme)
+            st.rerun()
+
         with st.container():
-            theme = st.session_state.get(THEME_STATE_KEY, DEFAULT_THEME)
-            theme_label = "oscuro" if theme == "light" else "claro"
-            if st.button(
-                f"Cambiar a modo {theme_label}",
-                type="secondary",
-                use_container_width=True,
-            ):
-                st.session_state[THEME_STATE_KEY] = "dark" if theme == "light" else "light"
-                apply_theme(st.session_state[THEME_STATE_KEY])
-                st.rerun()
             if st.button("Cerrar sesion", type="secondary", use_container_width=True):
                 st.session_state.logged_in = False
                 st.session_state.historial = []
