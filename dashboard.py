@@ -226,6 +226,64 @@ st.markdown(
         border-radius: 999px !important;
     }
 
+    @media (max-width: 900px) {
+        section[data-testid="stSidebar"] {
+            display: block !important;
+            position: static !important;
+            float: none !important;
+            width: 100% !important;
+            min-width: 100% !important;
+            max-width: 100% !important;
+            transform: none !important;
+            border-right: none !important;
+            border-bottom: 1px solid rgba(15, 23, 42, 0.08) !important;
+            margin-bottom: 1rem !important;
+        }
+
+        section[data-testid="stSidebar"] > div {
+            width: 100% !important;
+        }
+
+        [data-testid="stAppViewContainer"] {
+            display: flex !important;
+            flex-direction: column !important;
+        }
+
+        [data-testid="stAppViewContainer"] > .main {
+            order: 2 !important;
+            width: 100% !important;
+            margin-left: 0 !important;
+            max-width: 100% !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+            padding-top: 0.5rem !important;
+        }
+
+        section[data-testid="stSidebar"] {
+            order: 1 !important;
+        }
+
+        [data-testid="stButton"] > button[kind="primary"],
+        [data-testid="stDownloadButton"] > button,
+        [data-testid="stDownloadButton"] a {
+            position: static !important;
+            min-width: 100% !important;
+            width: 100% !important;
+            right: auto !important;
+            bottom: auto !important;
+            margin-top: 0.75rem !important;
+        }
+
+        .sidebar-actions .stButton > button,
+        .sidebar-actions .stDownloadButton > button {
+            min-width: 100% !important;
+        }
+
+        [data-testid="stHorizontalBlock"] {
+            gap: 0.75rem !important;
+        }
+    }
+
     [data-testid="stTextInput"] input {
         min-height: 44px !important;
         height: 44px !important;
@@ -444,67 +502,79 @@ def render_login() -> None:
                 st.rerun()
             st.error("Credenciales incorrectas.")
 
+def render_controls_panel(df: pd.DataFrame, apify_spent: float | None) -> tuple[list[str], int]:
+    st.markdown(
+        f"""
+        <div class="sidebar-summary">
+            <div class="summary-label">Videos analizados</div>
+            <div class="summary-value">{len(df):,}</div>
+            <div class="summary-label">Cuentas</div>
+            <div class="summary-value">{df["account"].nunique():,}</div>
+            <div class="summary-label">Views promedio</div>
+            <div class="summary-value">{df["views"].mean():,.0f}</div>
+            <div class="summary-label">Videos virales (>2x)</div>
+            <div class="summary-value">{int((df["viral_score"] > 2).sum()):,}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("<div class='apify-usage'>", unsafe_allow_html=True)
+    st.markdown("<div class='usage-title'>Consumo Apify</div>", unsafe_allow_html=True)
+    if apify_spent is None:
+        st.caption("No pude leer el uso mensual de Apify.")
+    else:
+        progress = min(max(apify_spent / APIFY_MONTHLY_BUDGET, 0.0), 1.0)
+        st.progress(progress)
+        st.markdown(
+            f"<div class='usage-caption'>{fmt_usd(apify_spent)} / {fmt_usd(APIFY_MONTHLY_BUDGET)}</div>",
+            unsafe_allow_html=True,
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.divider()
+    plataformas = st.multiselect(
+        "Plataforma",
+        ["TikTok", "Instagram"],
+        default=["TikTok", "Instagram"],
+    )
+    min_views = st.number_input("Views minimos", min_value=0, value=1000, step=1000)
+
+    st.divider()
+    with st.container():
+        if st.button("Cerrar sesion", type="secondary", use_container_width=True):
+            st.session_state.logged_in = False
+            st.session_state.historial = []
+            st.session_state.reporte_texto = ""
+            st.session_state.reporte_pdf = None
+            st.rerun()
+        if st.session_state.get("logged_in") and st.button(
+            "Actualizar datos (scraper)", type="secondary", use_container_width=True
+        ):
+            with st.spinner("Actualizando datos..."):
+                subprocess.run([sys.executable, "scraper.py"], check=False)
+            st.success("Datos actualizados")
+            st.rerun()
+
+    return plataformas, min_views
+
+
 def render_sidebar(df: pd.DataFrame, apify_spent: float | None) -> tuple[list[str], int]:
     with st.sidebar:
         st.markdown(
             "<div style='font-size:1.05rem;font-weight:700;line-height:1.05;letter-spacing:-0.03em;margin-bottom:0.4rem;'>Piolet Market Intelligence</div>",
             unsafe_allow_html=True,
         )
+        return render_controls_panel(df, apify_spent)
 
+
+def render_mobile_controls(df: pd.DataFrame, apify_spent: float | None) -> tuple[list[str], int]:
+    with st.expander("Filtros y resumen", expanded=False):
         st.markdown(
-            f"""
-            <div class="sidebar-summary">
-                <div class="summary-label">Videos analizados</div>
-                <div class="summary-value">{len(df):,}</div>
-                <div class="summary-label">Cuentas</div>
-                <div class="summary-value">{df["account"].nunique():,}</div>
-                <div class="summary-label">Views promedio</div>
-                <div class="summary-value">{df["views"].mean():,.0f}</div>
-                <div class="summary-label">Videos virales (>2x)</div>
-                <div class="summary-value">{int((df["viral_score"] > 2).sum()):,}</div>
-            </div>
-            """,
+            "<div style='font-size:1.02rem;font-weight:700;line-height:1.05;letter-spacing:-0.03em;margin-bottom:0.4rem;'>Piolet Market Intelligence</div>",
             unsafe_allow_html=True,
         )
-
-        st.markdown("<div class='apify-usage'>", unsafe_allow_html=True)
-        st.markdown("<div class='usage-title'>Consumo Apify</div>", unsafe_allow_html=True)
-        if apify_spent is None:
-            st.caption("No pude leer el uso mensual de Apify.")
-        else:
-            progress = min(max(apify_spent / APIFY_MONTHLY_BUDGET, 0.0), 1.0)
-            st.progress(progress)
-            st.markdown(
-                f"<div class='usage-caption'>{fmt_usd(apify_spent)} / {fmt_usd(APIFY_MONTHLY_BUDGET)}</div>",
-                unsafe_allow_html=True,
-            )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        st.divider()
-        plataformas = st.multiselect(
-            "Plataforma",
-            ["TikTok", "Instagram"],
-            default=["TikTok", "Instagram"],
-        )
-        min_views = st.number_input("Views minimos", min_value=0, value=1000, step=1000)
-
-        st.divider()
-        with st.container():
-            if st.button("Cerrar sesion", type="secondary", use_container_width=True):
-                st.session_state.logged_in = False
-                st.session_state.historial = []
-                st.session_state.reporte_texto = ""
-                st.session_state.reporte_pdf = None
-                st.rerun()
-            if st.session_state.get("logged_in") and st.button(
-                "Actualizar datos (scraper)", type="secondary", use_container_width=True
-            ):
-                with st.spinner("Actualizando datos..."):
-                    subprocess.run([sys.executable, "scraper.py"], check=False)
-                st.success("Datos actualizados")
-                st.rerun()
-
-    return plataformas, min_views
+        return render_controls_panel(df, apify_spent)
 
 
 def render_tables(df_filtrado: pd.DataFrame) -> None:
