@@ -39,6 +39,8 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&display=swap');
+
     html, body, [class*="css"] {
         font-family: 'Space Grotesk', 'Segoe UI', 'Aptos', 'Helvetica Neue', Arial, sans-serif !important;
     }
@@ -323,6 +325,21 @@ st.markdown(
         height: 44px !important;
         font-size: 0.82rem !important;
         border-radius: 999px !important;
+        color: #111827 !important;
+        background: #ffffff !important;
+    }
+
+    [data-testid="stTextInput"] input::placeholder,
+    [data-testid="stTextInput"] textarea::placeholder {
+        color: #6b7280 !important;
+        opacity: 1 !important;
+    }
+
+    [data-testid="stTextInput"] label,
+    [data-testid="stTextInput"] label p,
+    [data-testid="stTextInput"] [data-baseweb="label"] {
+        color: #111827 !important;
+        font-weight: 600 !important;
     }
 
     .login-wrap {
@@ -334,39 +351,104 @@ st.markdown(
     }
 
     .login-shell {
-        width: min(560px, 100%);
-        text-align: left;
+        width: min(600px, 100%);
+        text-align: center;
         transform: translateY(-18px);
     }
 
     .login-head {
         display: flex;
+        flex-direction: column;
         align-items: center;
-        gap: 0.9rem;
-        margin-bottom: 1.15rem;
+        gap: 0.8rem;
+        margin-bottom: 1rem;
     }
 
     .login-head img {
-        width: 58px;
-        height: 58px;
+        width: 74px;
+        height: 74px;
         object-fit: contain;
         border-radius: 16px;
     }
 
     .login-title {
-        font-size: clamp(2rem, 4vw, 3rem);
-        line-height: 0.96;
-        font-weight: 700;
-        letter-spacing: -0.05em;
+        font-family: 'Sora', 'Space Grotesk', 'Segoe UI', sans-serif !important;
+        font-size: clamp(2.2rem, 5vw, 3.4rem);
+        line-height: 0.93;
+        font-weight: 800;
+        letter-spacing: -0.06em;
         text-transform: uppercase;
         margin: 0;
     }
 
     .login-subtitle {
+        font-family: 'Sora', 'Space Grotesk', 'Segoe UI', sans-serif !important;
         font-size: 0.98rem;
         opacity: 0.75;
         margin-top: 1rem;
         margin-bottom: 1.35rem;
+    }
+
+    .login-copy {
+        text-align: center;
+        margin: 0 auto 1.1rem;
+        max-width: 520px;
+    }
+
+    .login-form {
+        width: min(620px, 100%);
+        margin: 0 auto;
+        text-align: left;
+        padding: 0.35rem 0 0;
+    }
+
+    .login-form [data-testid="stForm"] {
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid rgba(17, 24, 39, 0.12);
+        border-radius: 18px;
+        padding: 1.15rem 1.15rem 0.9rem;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+    }
+
+    .login-form [data-testid="stTextInput"] {
+        margin-bottom: 0.85rem;
+    }
+
+    .login-form [data-testid="stFormSubmitButton"] button {
+        min-height: 46px !important;
+        border-radius: 999px !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.08em !important;
+        background: #d8ff4d !important;
+        color: #111827 !important;
+        border: 1px solid rgba(0, 0, 0, 0.06) !important;
+        box-shadow: 0 10px 24px rgba(216, 255, 77, 0.24) !important;
+    }
+
+    .login-form [data-testid="stFormSubmitButton"] button:hover,
+    .login-form [data-testid="stFormSubmitButton"] button:focus {
+        background: #cfee3b !important;
+        color: #111827 !important;
+        border-color: rgba(0, 0, 0, 0.08) !important;
+    }
+
+    @media (max-width: 600px) {
+        .login-shell {
+            transform: none;
+        }
+
+        .login-title {
+            font-size: clamp(1.8rem, 9vw, 2.5rem);
+        }
+
+        .login-form {
+            width: 100%;
+        }
+
+        .login-form [data-testid="stForm"] {
+            padding: 1rem 0.9rem 0.8rem;
+        }
     }
 
     </style>
@@ -510,29 +592,30 @@ def ensure_sidebar_open() -> None:
 
 
 def render_login() -> None:
-    c1, c2, c3 = st.columns([1, 1.1, 1], vertical_alignment="center")
+    c1, c2, c3 = st.columns([1, 1.2, 1], vertical_alignment="center")
     with c2:
-        head_cols = st.columns([0.18, 0.82], vertical_alignment="center")
-        with head_cols[0]:
-            if APP_ICON.exists():
-                st.image(str(APP_ICON), width=58)
-        with head_cols[1]:
-            st.markdown(
-                "<div class='login-title'>Piolet<br>Market Intelligence</div>"
-                "<div class='login-subtitle'>Acceso interno al dashboard. Ingresa con tus credenciales de prueba para continuar.</div>",
-                unsafe_allow_html=True,
-            )
+        st.markdown("<div class='login-wrap'><div class='login-shell'>", unsafe_allow_html=True)
+        if APP_ICON.exists():
+            st.image(str(APP_ICON), width=74)
+        st.markdown(
+            "<div class='login-title'>Piolet<br>Market Intelligence</div>"
+            "<div class='login-subtitle login-copy'>Acceso interno al dashboard. Ingresa con tus credenciales de prueba para continuar.</div>",
+            unsafe_allow_html=True,
+        )
 
         with st.form("login_form"):
+            st.markdown("<div class='login-form'>", unsafe_allow_html=True)
             user = st.text_input("Usuario", placeholder="Usuario")
-            pwd = st.text_input("ContraseÃ±a", placeholder="ContraseÃ±a", type="password")
+            pwd = st.text_input("Contraseña", placeholder="Contraseña", type="password")
             submitted = st.form_submit_button("Entrar", use_container_width=True, type="secondary")
+            st.markdown("</div>", unsafe_allow_html=True)
 
         if submitted:
             if user.strip() == TEST_USER and pwd == TEST_PASSWORD:
                 st.session_state.logged_in = True
                 st.rerun()
             st.error("Credenciales incorrectas.")
+        st.markdown("</div></div>", unsafe_allow_html=True)
 
 def render_controls_panel(df: pd.DataFrame, apify_spent: float | None) -> tuple[list[str], int]:
     st.markdown(
