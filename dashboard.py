@@ -23,8 +23,6 @@ TEST_USER = os.getenv("PIOLET_TEST_USER", "piolet")
 TEST_PASSWORD = os.getenv("PIOLET_TEST_PASSWORD", "piolet123")
 APIFY_MONTHLY_BUDGET = 5.0
 DATA_PATH = Path("datos/videos_latest.csv")
-THEME_STATE_KEY = "piolet_theme"
-DEFAULT_THEME = "light"
 
 
 def _page_icon() -> str:
@@ -38,32 +36,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-if THEME_STATE_KEY not in st.session_state:
-    st.session_state[THEME_STATE_KEY] = DEFAULT_THEME
-
-
-def apply_theme(theme: str) -> None:
-    components.html(
-        f"""
-        <script>
-        (function () {{
-          try {{
-            const theme = {theme!r};
-            const parentDoc = window.parent.document;
-            parentDoc.documentElement.setAttribute("data-piolet-theme", theme);
-            parentDoc.body.setAttribute("data-piolet-theme", theme);
-            window.parent.localStorage.setItem("piolet-theme", theme);
-          }} catch (e) {{}}
-        }})();
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
-
-apply_theme(st.session_state[THEME_STATE_KEY])
-
 st.markdown(
     """
     <style>
@@ -71,67 +43,9 @@ st.markdown(
         font-family: 'Space Grotesk', 'Segoe UI', 'Aptos', 'Helvetica Neue', Arial, sans-serif !important;
     }
 
-    html[data-piolet-theme="light"],
-    body[data-piolet-theme="light"],
-    html[data-piolet-theme="light"] .stApp,
-    body[data-piolet-theme="light"] .stApp,
-    html[data-piolet-theme="light"] [data-testid="stAppViewContainer"],
-    html[data-piolet-theme="light"] [data-testid="stHeader"],
-    html[data-piolet-theme="light"] [data-testid="stSidebar"],
-    html[data-piolet-theme="light"] .main {
+    html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stSidebar"], .main {
         background: #f6f7fb !important;
         color: #111827 !important;
-    }
-
-    html[data-piolet-theme="dark"],
-    body[data-piolet-theme="dark"],
-    html[data-piolet-theme="dark"] .stApp,
-    body[data-piolet-theme="dark"] .stApp,
-    html[data-piolet-theme="dark"] [data-testid="stAppViewContainer"],
-    html[data-piolet-theme="dark"] [data-testid="stHeader"],
-    html[data-piolet-theme="dark"] [data-testid="stSidebar"],
-    html[data-piolet-theme="dark"] .main {
-        background: #0b1020 !important;
-        color: #f8fafc !important;
-    }
-
-    html[data-piolet-theme="light"] .stApp,
-    html[data-piolet-theme="light"] [data-testid="stSidebar"],
-    html[data-piolet-theme="light"] [data-testid="stAppViewContainer"] > .main,
-    html[data-piolet-theme="dark"] .stApp,
-    html[data-piolet-theme="dark"] [data-testid="stSidebar"],
-    html[data-piolet-theme="dark"] [data-testid="stAppViewContainer"] > .main {
-        transition: background-color 180ms ease, color 180ms ease;
-    }
-
-    html[data-piolet-theme="dark"] .stApp *,
-    html[data-piolet-theme="dark"] [data-testid="stSidebar"] *,
-    html[data-piolet-theme="dark"] [data-testid="stAppViewContainer"] .main * {
-        color: #f8fafc;
-    }
-
-    html[data-piolet-theme="dark"] [data-testid="stTextInput"] input,
-    html[data-piolet-theme="dark"] [data-testid="stNumberInput"] input,
-    html[data-piolet-theme="dark"] [data-baseweb="select"] input,
-    html[data-piolet-theme="dark"] textarea {
-        color: #111827 !important;
-        background: #ffffff !important;
-    }
-
-    html[data-piolet-theme="dark"] [data-testid="stTextInput"] input::placeholder,
-    html[data-piolet-theme="dark"] textarea::placeholder {
-        color: #6b7280 !important;
-    }
-
-    html[data-piolet-theme="dark"] [data-testid="stDataFrame"],
-    html[data-piolet-theme="dark"] [data-testid="stDataFrame"] * {
-        color: #111827 !important;
-    }
-
-    html[data-piolet-theme="dark"] [data-testid="stDataFrame"] {
-        background: #ffffff !important;
-        border-radius: 14px !important;
-        overflow: hidden !important;
     }
 
     [data-testid="stToolbar"],
@@ -363,41 +277,6 @@ st.markdown(
         margin-bottom: 1.35rem;
     }
 
-    html[data-piolet-theme="dark"] .login-title,
-    html[data-piolet-theme="dark"] .login-subtitle,
-    html[data-piolet-theme="dark"] .sidebar-summary,
-    html[data-piolet-theme="dark"] .sidebar-summary .summary-label,
-    html[data-piolet-theme="dark"] .sidebar-summary .summary-value,
-    html[data-piolet-theme="dark"] .apify-usage,
-    html[data-piolet-theme="dark"] .apify-usage .usage-title,
-    html[data-piolet-theme="dark"] .apify-usage .usage-caption {
-        color: #ffffff !important;
-    }
-
-    html[data-piolet-theme="light"] .login-title,
-    html[data-piolet-theme="light"] .login-subtitle,
-    html[data-piolet-theme="light"] .sidebar-summary,
-    html[data-piolet-theme="light"] .sidebar-summary .summary-label,
-    html[data-piolet-theme="light"] .sidebar-summary .summary-value,
-    html[data-piolet-theme="light"] .apify-usage,
-    html[data-piolet-theme="light"] .apify-usage .usage-title,
-    html[data-piolet-theme="light"] .apify-usage .usage-caption {
-        color: #111111 !important;
-    }
-
-    html[data-piolet-theme="light"] .sidebar-actions .stButton > button,
-    html[data-piolet-theme="light"] .sidebar-actions .stDownloadButton > button {
-        background: linear-gradient(135deg, #111827 0%, #374151 100%) !important;
-        color: #ffffff !important;
-        border-color: rgba(17, 24, 39, 0.2) !important;
-    }
-
-    html[data-piolet-theme="dark"] .sidebar-actions .stButton > button,
-    html[data-piolet-theme="dark"] .sidebar-actions .stDownloadButton > button {
-        background: linear-gradient(135deg, #e2e8f0 0%, #ffffff 100%) !important;
-        color: #0f172a !important;
-        border-color: rgba(226, 232, 240, 0.2) !important;
-    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -610,21 +489,6 @@ def render_sidebar(df: pd.DataFrame, apify_spent: float | None) -> tuple[list[st
         min_views = st.number_input("Views minimos", min_value=0, value=1000, step=1000)
 
         st.divider()
-        current_theme = st.session_state.get(THEME_STATE_KEY, DEFAULT_THEME)
-        theme_choice = st.radio(
-            "Tema",
-            ["Claro", "Oscuro"],
-            index=0 if current_theme == "light" else 1,
-            horizontal=True,
-            label_visibility="collapsed",
-            key="theme_radio",
-        )
-        selected_theme = "light" if theme_choice == "Claro" else "dark"
-        if selected_theme != current_theme:
-            st.session_state[THEME_STATE_KEY] = selected_theme
-            apply_theme(selected_theme)
-            st.rerun()
-
         with st.container():
             if st.button("Cerrar sesion", type="secondary", use_container_width=True):
                 st.session_state.logged_in = False
