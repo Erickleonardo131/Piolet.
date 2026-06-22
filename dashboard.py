@@ -63,6 +63,17 @@ st.markdown(
         max-width: 100% !important;
     }
 
+    html[data-piolet-sidebar="visible"] section[data-testid="stSidebar"] {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        position: relative !important;
+        transform: none !important;
+        left: auto !important;
+        right: auto !important;
+        margin-left: 0 !important;
+    }
+
     button[data-testid="collapsedControl"],
     [data-testid="collapsedControl"],
     button[aria-label*="Open sidebar"],
@@ -109,6 +120,7 @@ st.markdown(
             width: 220px !important;
             min-width: 220px !important;
             max-width: 220px !important;
+            transform: none !important;
         }
 
         [data-testid="stAppViewContainer"] > .main {
@@ -512,16 +524,11 @@ def ensure_sidebar_open() -> None:
 def render_login() -> None:
     c1, c2, c3 = st.columns([1, 1.1, 1], vertical_alignment="center")
     with c2:
-        head_cols = st.columns([0.18, 0.82], vertical_alignment="center")
-        with head_cols[0]:
-            if APP_ICON.exists():
-                st.image(str(APP_ICON), width=58)
-        with head_cols[1]:
-            st.markdown(
-                "<div class='login-title'>Piolet<br>Market Intelligence</div>"
-                "<div class='login-subtitle'>Acceso interno al dashboard. Ingresa con tus credenciales de prueba para continuar.</div>",
-                unsafe_allow_html=True,
-            )
+        st.markdown(
+            "<div class='login-title'>Piolet<br>Market Intelligence</div>"
+            "<div class='login-subtitle'>Acceso interno al dashboard. Ingresa con tus credenciales de prueba para continuar.</div>",
+            unsafe_allow_html=True,
+        )
 
         with st.form("login_form"):
             user = st.text_input("Usuario", placeholder="Usuario")
@@ -612,6 +619,12 @@ def render_mobile_controls(df: pd.DataFrame, apify_spent: float | None) -> tuple
 def render_tables(df_filtrado: pd.DataFrame) -> None:
     import pandas as pd
 
+    def _table_height(row_count: int, *, min_height: int = 180, max_height: int = 320) -> int:
+        if row_count <= 0:
+            return min_height
+        # Ajuste fino para evitar que Streamlit deje una fila vacía visible al final.
+        return min(max(row_count * 34 + 24, min_height), max_height)
+
     ranking_cols = [
         "platform",
         "account",
@@ -623,10 +636,11 @@ def render_tables(df_filtrado: pd.DataFrame) -> None:
         "description",
         "url",
     ]
+    ranking_info_cols = [col for col in ranking_cols if col != "url"]
     ranking_df = (
         df_filtrado[ranking_cols]
-        .replace({"": pd.NA})
-        .dropna(how="all")
+        .replace(r"^\s*$", pd.NA, regex=True)
+        .dropna(how="all", subset=ranking_info_cols)
         .head(5)
         .copy()
     )
@@ -637,8 +651,12 @@ def render_tables(df_filtrado: pd.DataFrame) -> None:
         ranking_df["engagement_rate"] = ranking_df["engagement_rate"].map(lambda v: f"{float(v):.2f}%")
         ranking_df["viral_score"] = ranking_df["viral_score"].map(lambda v: f"{float(v):.2f}")
 
+    perf_source = (
+        df_filtrado.replace(r"^\s*$", pd.NA, regex=True)
+        .dropna(subset=["platform", "account"], how="any")
+    )
     perf_df = (
-        df_filtrado.groupby(["platform", "account"], as_index=False)
+        perf_source.groupby(["platform", "account"], as_index=False)
         .agg(
             videos=("views", "count"),
             views_max=("views", "max"),
@@ -661,7 +679,7 @@ def render_tables(df_filtrado: pd.DataFrame) -> None:
             ranking_df,
             use_container_width=True,
             hide_index=True,
-            height=320,
+            height=_table_height(len(ranking_df)),
             column_config={
                 "url": st.column_config.LinkColumn("URL", display_text="Abrir"),
             },
@@ -672,7 +690,7 @@ def render_tables(df_filtrado: pd.DataFrame) -> None:
             perf_df,
             use_container_width=True,
             hide_index=True,
-            height=320,
+            height=_table_height(len(perf_df)),
         )
 
 
@@ -704,7 +722,7 @@ def render_agent(context_data: str, df_filtrado: pd.DataFrame) -> None:
                 label_visibility="collapsed",
             )
         with c2:
-            enviar = st.form_submit_button("â†—", use_container_width=True, type="secondary")
+            enviar = st.form_submit_button("↑", use_container_width=True, type="secondary")
 
     if enviar and pregunta.strip():
         with st.chat_message("user"):
@@ -780,7 +798,13 @@ def main() -> None:
               window.parent.localStorage.setItem(storageKey, visible ? "true" : "false");
             };
 
-            writeVisible(readVisible());
+            if (isMobile) {
+              writeVisible(readVisible());
+            } else {
+              // En escritorio siempre arrancamos con el sidebar visible, sin depender
+              // de un estado viejo guardado en localStorage.
+              writeVisible(true);
+            }
 
             if (isMobile && !window.__pioletSidebarSwipeInstalled) {
               window.__pioletSidebarSwipeInstalled = true;

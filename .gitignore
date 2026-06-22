@@ -17,6 +17,8 @@ venv/
 
 # Streamlit local artifacts
 .streamlit/secrets.toml
+.streamlit/credentials.toml
+.streamlit/machine_id_v4
 
 # Generated outputs
 output/

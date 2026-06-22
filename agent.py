@@ -482,7 +482,11 @@ def build_report_pdf(report_text: str, output_path: str | None = None) -> bytes:
 
 
 def cargar_datos() -> tuple[pd.DataFrame, str]:
-    df = pd.read_csv(DATA_PATH, index_col="rank")
+    df = (
+        pd.read_csv(DATA_PATH, index_col="rank")
+        .replace(r"^\s*$", pd.NA, regex=True)
+        .dropna(how="all")
+    )
 
     top_videos = df.head(30)[
         ["platform", "account", "views", "likes", "comments",
