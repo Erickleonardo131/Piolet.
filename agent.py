@@ -1188,7 +1188,8 @@ def stream_respuesta(
             max_tokens=_max_tokens_for_intent(intencion),
         )
         yield _extraer_contenido(resp.choices[0])
-    except Exception:
+    except Exception as e:
+        _log_model_error(f"stream_respuesta intent={intencion}", e)
         if intencion in {
             INTENCION_RANKING,
             INTENCION_COMPARACION,
@@ -1693,6 +1694,23 @@ def _openrouter_error_message(error: Exception, intencion: str) -> str:
     if intencion == INTENCION_ANALISIS_INDIVIDUAL:
         return "No pude consultar OpenRouter para el análisis. Revisa la clave, red y disponibilidad del modelo."
     return "No pude consultar OpenRouter. Revisa la clave, la red y la disponibilidad del modelo."
+
+
+def _log_model_error(contexto: str, error: Exception) -> None:
+    """Imprime el error real en consola/servidor sin exponerlo al front."""
+    error_type = type(error).__name__
+    print(f"[OpenRouterError][{contexto}] {error_type}: {error}")
+    response = getattr(error, "response", None)
+    if response is not None:
+        status_code = getattr(response, "status_code", None)
+        if status_code is not None:
+            print(f"[OpenRouterError][{contexto}] HTTP status: {status_code}")
+        try:
+            body = response.text
+            if body:
+                print(f"[OpenRouterError][{contexto}] Response body: {body}")
+        except Exception:
+            pass
 
 
 def stream_respuesta(
