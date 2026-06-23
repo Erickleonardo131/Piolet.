@@ -10,6 +10,7 @@ import re
 import html
 import unicodedata
 import pandas as pd
+import httpx
 from openai import OpenAI
 from dotenv import load_dotenv
 from reportlab.lib import colors
@@ -150,6 +151,7 @@ def get_client() -> OpenAI:
     return OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=OPENROUTER_API_KEY,
+        http_client=httpx.Client(trust_env=False),
         default_headers={
             "HTTP-Referer": "https://pixelen.dev",
             "X-Title":      "Piolet Market Intel",
@@ -168,8 +170,8 @@ def _safe_chat_text(*, model: str, messages: list[dict], max_tokens: int, fallba
         text = (response.choices[0].message.content or "").strip()
         if text:
             return text
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[OpenRouterError][_safe_chat_text] {type(e).__name__}: {e}")
     return fallback
 
 
@@ -327,9 +329,8 @@ def _model_for_intent(intencion: str) -> str:
         INTENCION_RANKING,
         INTENCION_COMPARACION,
         INTENCION_RECOMENDACIONES,
+        INTENCION_ANALISIS_INDIVIDUAL,
     }:
-        return MODELO_INSIGHTS
-    if intencion == INTENCION_ANALISIS_INDIVIDUAL:
         return MODELO_ANALISIS
     return MODELO_CONVERSACION
 
@@ -1074,6 +1075,9 @@ def agente_interactivo():
                 "Si quieres, te respondo normal o analizo los videos del tablero."
             )
             print(respuesta_completa, end="", flush=True)
+        elif intencion in {INTENCION_CONVERSACION, INTENCION_PLATAFORMA}:
+            respuesta_completa = _local_chat_reply(pregunta, intencion)
+            print(respuesta_completa, end="", flush=True)
         else:
             model = _model_for_intent(intencion)
             stream = client.chat.completions.create(
@@ -1197,6 +1201,553 @@ def stream_respuesta(
             )
         else:
             yield "No pude responder en este momento. Si quieres, intenta de nuevo en unos segundos."
+
+
+SYSTEM_PROMPT_CONVERSACION = """
+Eres el asistente de Piolet Market Intelligence.
+
+Tu tarea es conversar de forma natural con el usuario.
+
+Responde saludos, preguntas generales y dudas sobre la plataforma.
+
+No generes analisis de videos a menos que el usuario lo solicite explicitamente.
+
+Mantente breve, amable y claro.
+
+Si preguntan que hace la plataforma, explica de forma simple que puede:
+- analizar videos
+- identificar patrones de viralidad
+- comparar cuentas
+- dar recomendaciones basadas en los datos disponibles
+""".strip()
+
+SYSTEM_PROMPT_ANALISIS = """
+Eres un estratega senior de marketing digital.
+
+Tu trabajo NO es describir el video.
+Tu trabajo es explicar por que obtuvo resultados.
+
+Reglas:
+- No inventar escenas.
+- No inventar emociones.
+- No inventar sonidos.
+- No inventar movimientos de camara.
+- No reconstruir historias.
+
+Analiza:
+- Curiosidad
+- Educacion
+- Autoridad
+- Credibilidad
+- Psicologia del usuario
+- Factores de viralidad
+
+Respuesta maxima: 120 palabras.
+
+Formato:
+
+POR QUE FUNCIONO
+- ...
+- ...
+- ...
+
+APRENDIZAJE PARA PIOLET
+- ...
+- ...
+""".strip()
+
+SYSTEM_PROMPT_RANKING = """
+Eres un analista de rendimiento de video.
+
+Responde solo con ranking o comparativos breves basados en los datos disponibles.
+
+Reglas:
+- Devuelve de 3 a 5 elementos maximo.
+- Incluye metricas reales del dataset cuando esten disponibles.
+- Explica en una frase breve por que aparecen arriba.
+- No inventes historias ni escenas.
+- No inventes datos que no esten en el contexto.
+
+Responde en espanol.
+""".strip()
+
+SYSTEM_PROMPT_RECOMENDACIONES = """
+Eres un estratega de contenido.
+
+Responde con recomendaciones accionables, sin narrar el video.
+
+Reglas:
+- Da insights concretos y aplicables.
+- Enfocate en que copiar, que probar y que evitar.
+- Si hay evidencia, menciona por que funciona.
+- No inventes historias ni escenas salvo que el usuario lo pida explicitamente.
+
+Responde en espanol.
+""".strip()
+
+SYSTEM_PROMPT_AMBIGUO = """
+No quedo claro si el usuario quiere una respuesta general o un analisis de videos o datos.
+
+Pide una aclaracion breve y natural en espanol.
+No analices todavia.
+""".strip()
+
+
+def clasificar_intencion(pregunta: str, historial: list[dict] | None = None) -> str:
+    texto = _normalizar_texto(pregunta)
+    if not texto:
+        return INTENCION_CONVERSACION
+
+    greetings = (
+        "hola", "buenas", "buenos dias", "buenas tardes", "buenas noches",
+        "que tal", "que onda", "hey", "saludos",
+    )
+    thanks = ("gracias", "muchas gracias", "te agradezco", "agradezco")
+    bye = ("adios", "hasta luego", "nos vemos", "bye", "chao", "cuidate")
+    platform_phrases = (
+        "que hace la plataforma", "para que sirve", "como funciona",
+        "que puedo hacer", "que hace piolet", "que hace este dashboard",
+        "explicame la plataforma", "que es piolet", "dashboard",
+        "reporte pdf", "descargar pdf", "filtros", "videos analizados",
+        "cuentas analizadas", "ayuda", "quien eres", "quien eres tu",
+    )
+    ranking_phrases = (
+        "mejor desempeno", "mejor rendimiento", "funcionan mejor",
+        "funciona mejor", "mejores videos", "top 5", "top videos",
+        "mas virales", "mas viral", "ranking", "desempeno",
+        "cuentas tienen mejor", "cuentas con mejor", "cuentas mas virales",
+        "videos funcionan mejor", "cuales fueron los mas virales",
+        "cuales son los mas virales", "cuentas tienen mejor desempeno",
+    )
+    recommendation_phrases = (
+        "que deberia copiar", "deberia copiar", "recomendaciones",
+        "que tendencias observas", "tendencias observas", "que harias",
+        "que publicaria", "que publicar", "como mejorar", "sugerencias",
+        "ideas de contenido", "ideas", "accionables", "optimizar",
+        "que estrategias estan funcionando", "estrategias estan funcionando",
+    )
+    analysis_phrases = (
+        "analiza este video", "analiza ese video", "dame la historia",
+        "historia de este video", "historia del video", "explica el hook",
+        "explica este video", "analisis individual", "arco emocional",
+        "mensaje implicito", "narrativa", "hook del video", "gancho",
+        "analiza", "analisis", "analizar", "por que se hizo viral",
+        "por que funciona", "por que funciono", "que podemos aprender",
+        "que hizo bien", "este video", "ese video", "este contenido",
+    )
+    ambiguous_phrases = (
+        "que opinas", "que piensas", "y este", "y esta", "y eso",
+        "y este video", "y esta cuenta", "que tal este", "que tal esta",
+        "cuentame mas", "dime mas", "esto?", "este?", "esa?",
+    )
+
+    if texto in greetings or any(texto.startswith(item + " ") for item in greetings):
+        return INTENCION_CONVERSACION
+    if texto in thanks or texto in bye:
+        return INTENCION_CONVERSACION
+    if any(phrase in texto for phrase in platform_phrases):
+        return INTENCION_PLATAFORMA
+    if any(phrase in texto for phrase in ranking_phrases):
+        return INTENCION_RANKING
+    if any(phrase in texto for phrase in recommendation_phrases):
+        return INTENCION_RECOMENDACIONES
+    if any(phrase in texto for phrase in ambiguous_phrases):
+        return INTENCION_AMBIGUA
+    if re.fullmatch(r"(este|ese|aqui|ahi)\s+(video|contenido|reel|post|clip|cuenta)", texto):
+        return INTENCION_AMBIGUA
+    if any(phrase in texto for phrase in analysis_phrases):
+        return INTENCION_ANALISIS_INDIVIDUAL
+    if "?" in texto and len(texto.split()) <= 4:
+        return INTENCION_AMBIGUA
+    return INTENCION_CONVERSACION
+
+
+def _system_prompt_for_intent(intencion: str) -> str:
+    if intencion == INTENCION_RANKING:
+        return SYSTEM_PROMPT_RANKING
+    if intencion == INTENCION_RECOMENDACIONES:
+        return SYSTEM_PROMPT_RECOMENDACIONES
+    if intencion == INTENCION_ANALISIS_INDIVIDUAL:
+        return SYSTEM_PROMPT_ANALISIS
+    if intencion == INTENCION_AMBIGUA:
+        return SYSTEM_PROMPT_AMBIGUO
+    return SYSTEM_PROMPT_CONVERSACION
+
+
+def _history_for_intent(historial: list[dict], intencion: str) -> list[dict]:
+    if intencion not in {INTENCION_CONVERSACION, INTENCION_PLATAFORMA, INTENCION_AMBIGUA}:
+        return historial
+
+    sanitizado: list[dict] = []
+    for msg in historial[-8:]:
+        role = msg.get("role", "user")
+        content = str(msg.get("content", ""))
+        if "[DATOS]" in content:
+            content = content.split("[DATOS]")[0].strip()
+        content = content.strip()
+        if content:
+            sanitizado.append({"role": role, "content": content})
+    return sanitizado
+
+
+def _local_chat_reply(pregunta: str, intencion: str) -> str:
+    texto = _normalizar_texto(pregunta)
+
+    if intencion == INTENCION_PLATAFORMA:
+        return (
+            "Piolet Market Intelligence te ayuda a analizar videos, identificar patrones de viralidad, "
+            "comparar cuentas y generar recomendaciones basadas en los datos disponibles."
+        )
+
+    if texto in {"hola", "buenas", "buenos dias", "buenas tardes", "buenas noches", "hey", "saludos"}:
+        return (
+            "Hola 👋 ¿En qué puedo ayudarte? Puedo analizar videos, identificar patrones de viralidad, "
+            "comparar cuentas o darte recomendaciones basadas en los datos disponibles."
+        )
+
+    if "gracias" in texto:
+        return "Con gusto. Si quieres, puedo ayudarte a analizar videos, comparar cuentas o sacar recomendaciones."
+
+    if any(frase in texto for frase in ("quien eres", "quien eres tu", "ayuda")):
+        return (
+            "Soy el asistente de Piolet Market Intelligence. Puedo ayudarte a analizar videos, "
+            "comparar cuentas, identificar patrones y sacar recomendaciones."
+        )
+
+    return (
+        "Puedo ayudarte a analizar videos, comparar cuentas, identificar patrones de viralidad "
+        "o darte recomendaciones basadas en los datos disponibles."
+    )
+
+
+def _local_ranking_reply(context_data: str, pregunta: str) -> str:
+    texto = _normalizar_texto(pregunta)
+    if "tiktok" in texto:
+        plataforma = "TikTok"
+    elif "instagram" in texto:
+        plataforma = "Instagram"
+    else:
+        plataforma = "las plataformas disponibles"
+
+    lines: list[str] = []
+    for raw_line in context_data.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("Top") or "viral score" in line.lower() or "views" in line.lower() or "cuentas trackeadas" in line.lower():
+            lines.append(line)
+    if not lines:
+        return (
+            f"En {plataforma}, los videos que mejor funcionan suelen ser los que combinan un gancho claro, "
+            "beneficio concreto y una propuesta fácil de entender."
+        )
+
+    preview = lines[:6]
+    cuerpo = "\n".join(f"- {line}" for line in preview)
+    return (
+        f"En {plataforma}, lo que mejor desempeño tiene en el tablero es esto:\n"
+        f"{cuerpo}\n\n"
+        "La razón probable es que esos contenidos mezclan gancho rápido, claridad del beneficio y señales de credibilidad."
+    )
+
+
+def _local_recommendations_reply(context_data: str, pregunta: str) -> str:
+    texto = _normalizar_texto(pregunta)
+    if "copiar" in texto or "deberia" in texto:
+        return (
+            "Yo copiaría tres cosas de lo que ya funciona: un gancho muy rápido, un beneficio concreto por video "
+            "y una prueba clara de credibilidad o uso real.\n\n"
+            "Para Piolet, eso se traduce en piezas cortas, directas y fáciles de consumir."
+        )
+    return (
+        "Las estrategias que están funcionando suelen combinar curiosidad, beneficio claro y credibilidad.\n\n"
+        "Para Piolet, la mejor jugada es hacer videos cortos, educativos y con una promesa concreta desde los primeros segundos."
+    )
+
+
+def _local_analysis_reply(context_data: str, pregunta: str) -> str:
+    return (
+        "POR QUE FUNCIONO\n"
+        "- Tiene un gancho claro y rápido.\n"
+        "- Comunica un beneficio o idea fácil de entender.\n"
+        "- Suma credibilidad o curiosidad desde los primeros segundos.\n\n"
+        "APRENDIZAJE PARA PIOLET\n"
+        "- Mostrar beneficio concreto desde el inicio.\n"
+        "- Evitar explicaciones largas.\n"
+        "- Reforzar autoridad con evidencia simple."
+    )
+
+
+def _trim_text(text: str, max_chars: int = 12000) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip() + "\n...[recortado]..."
+
+
+def _extract_json_object(text: str) -> dict:
+    raw = (text or "").strip()
+    if not raw:
+        return {}
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"\s*```$", "", raw)
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        raw = raw[start:end + 1]
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        return {}
+    return {}
+
+
+def _normalize_structured_result(data: dict, intencion: str) -> dict:
+    if not isinstance(data, dict):
+        data = {}
+
+    if intencion == INTENCION_RANKING:
+        data.setdefault("intent", "ranking")
+        data.setdefault("top_videos", [])
+        data.setdefault("patterns", [])
+        data.setdefault("reasoning", [])
+        data.setdefault("recommendations", [])
+        return data
+    if intencion == INTENCION_RECOMENDACIONES:
+        data.setdefault("intent", "recommendations")
+        data.setdefault("patterns", [])
+        data.setdefault("reasoning", [])
+        data.setdefault("recommendations", [])
+        data.setdefault("top_videos", [])
+        return data
+    if intencion == INTENCION_ANALISIS_INDIVIDUAL:
+        data.setdefault("intent", "analysis_individual")
+        data.setdefault("patterns", [])
+        data.setdefault("reasoning", [])
+        data.setdefault("takeaway", "")
+        data.setdefault("recommendations", [])
+        return data
+    data.setdefault("intent", intencion)
+    return data
+
+
+def _nemotron_prompt_for_intent(intencion: str) -> str:
+    if intencion == INTENCION_RANKING:
+        return """
+Eres Nemotron, motor analitico de Piolet.
+Devuelve SOLO JSON valido.
+Objetivo: identificar los videos o cuentas con mejor desempeno, detectar patrones y resumir razones probables de viralidad.
+Formato:
+{"intent":"ranking","top_videos":[{"account":"string","platform":"string","views":0,"viral_score":0,"note":"string"}],"patterns":["string"],"reasoning":["string"],"recommendations":["string"],"confidence":"high|medium|low"}
+""".strip()
+    if intencion == INTENCION_RECOMENDACIONES:
+        return """
+Eres Nemotron, motor analitico de Piolet.
+Devuelve SOLO JSON valido.
+Objetivo: detectar oportunidades accionables, resumir patrones de exito y proponer aprendizajes para Piolet.
+Formato:
+{"intent":"recommendations","patterns":["string"],"reasoning":["string"],"recommendations":["string"],"top_videos":[],"confidence":"high|medium|low"}
+""".strip()
+    if intencion == INTENCION_ANALISIS_INDIVIDUAL:
+        return """
+Eres Nemotron, motor analitico de Piolet.
+Devuelve SOLO JSON valido.
+Objetivo: explicar por que el video funciona o no funciona, resumir causas probables de viralidad y extraer aprendizajes para Piolet.
+Formato:
+{"intent":"analysis_individual","patterns":["string"],"reasoning":["string"],"takeaway":"string","recommendations":["string"],"confidence":"high|medium|low"}
+""".strip()
+    return "Eres Nemotron, motor analitico de Piolet. Devuelve SOLO JSON valido."
+
+
+def _gemma_prompt_for_intent(intencion: str) -> str:
+    if intencion == INTENCION_AMBIGUA:
+        return """
+Eres Gemma, el agente conversacional de Piolet Market Intelligence.
+El usuario hizo una pregunta ambigua. Pide una aclaracion breve, natural y amable en espanol. No inventes analisis.
+""".strip()
+    if intencion in {INTENCION_CONVERSACION, INTENCION_PLATAFORMA}:
+        return """
+Eres Gemma, el agente conversacional de Piolet Market Intelligence.
+Tu tarea es conversar de forma natural con el usuario.
+Responde saludos, preguntas generales y dudas sobre la plataforma.
+No generes analisis de videos a menos que el usuario lo solicite explicitamente.
+Mantente breve, amable y claro.
+Responde en espanol como ChatGPT.
+""".strip()
+    if intencion == INTENCION_RANKING:
+        return """
+Eres Gemma, el agente conversacional de Piolet Market Intelligence.
+Recibiste un resultado estructurado de Nemotron.
+Tu trabajo es explicarlo de forma natural, breve y clara.
+No recalcules metricas, no inventes datos nuevos y no describas escenas.
+Responde en espanol como ChatGPT.
+""".strip()
+    if intencion == INTENCION_RECOMENDACIONES:
+        return """
+Eres Gemma, el agente conversacional de Piolet Market Intelligence.
+Recibiste un resultado estructurado de Nemotron.
+Tu trabajo es explicarlo de forma natural, breve y accionable.
+No inventes datos nuevos ni recalcules metricas.
+Responde en espanol como ChatGPT.
+""".strip()
+    if intencion == INTENCION_ANALISIS_INDIVIDUAL:
+        return """
+Eres Gemma, el agente conversacional de Piolet Market Intelligence.
+Recibiste un resultado estructurado de Nemotron.
+Tu trabajo es explicarlo de forma natural, breve y convincente.
+No inventes escenas, no recalcules metricas y no agregues datos nuevos.
+Responde en espanol como ChatGPT.
+""".strip()
+    return "Eres Gemma, el agente conversacional de Piolet Market Intelligence. Responde en espanol como ChatGPT."
+
+
+def _build_nemotron_messages(historial: list[dict], pregunta: str, context_data: str, intencion: str) -> list[dict]:
+    return [
+        {"role": "system", "content": _nemotron_prompt_for_intent(intencion)},
+        *(_history_for_intent(historial, intencion)),
+        {
+            "role": "user",
+            "content": (
+                f"Pregunta del usuario:\n{pregunta}\n\n"
+                f"Contexto de datos:\n{_trim_text(context_data)}\n\n"
+                "Devuelve el JSON solicitado y nada mas."
+            ),
+        },
+    ]
+
+
+def _build_gemma_messages(
+    historial: list[dict],
+    pregunta: str,
+    intencion: str,
+    structured_result: dict | None = None,
+) -> list[dict]:
+    messages = [{"role": "system", "content": _gemma_prompt_for_intent(intencion)}]
+    messages.extend(_history_for_intent(historial, INTENCION_CONVERSACION if intencion == INTENCION_AMBIGUA else intencion))
+    if structured_result is None:
+        messages.append({"role": "user", "content": pregunta})
+    else:
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"Pregunta del usuario:\n{pregunta}\n\n"
+                    f"Resultado estructurado de Nemotron:\n{json.dumps(structured_result, ensure_ascii=False, indent=2)}\n\n"
+                    "Explica esto al usuario de forma natural, breve y util."
+                ),
+            }
+        )
+    return messages
+
+
+def _call_model_text(*, model: str, messages: list[dict], max_tokens: int) -> str:
+    client = get_client()
+    response = client.chat.completions.create(model=model, messages=messages, max_tokens=max_tokens)
+    return (response.choices[0].message.content or "").strip()
+
+
+def _nemotron_structured_result(historial: list[dict], pregunta: str, context_data: str, intencion: str) -> dict:
+    raw = _call_model_text(
+        model=MODELO_ANALISIS,
+        messages=_build_nemotron_messages(historial, pregunta, context_data, intencion),
+        max_tokens=900,
+    )
+    parsed = _extract_json_object(raw)
+    if not parsed:
+        parsed = {"intent": intencion, "raw": raw}
+    return _normalize_structured_result(parsed, intencion)
+
+
+def _gemma_explain_result(
+    historial: list[dict],
+    pregunta: str,
+    intencion: str,
+    structured_result: dict | None = None,
+) -> str:
+    return _call_model_text(
+        model=MODELO_CONVERSACION,
+        messages=_build_gemma_messages(historial, pregunta, intencion, structured_result),
+        max_tokens=700,
+    )
+
+
+def _openrouter_error_message(error: Exception, intencion: str) -> str:
+    name = type(error).__name__.lower()
+    message = str(error).lower()
+
+    if "rate limit" in message or "rate_limit" in message or "429" in message or "free-models-per-day" in message:
+        return (
+            "OpenRouter alcanzo el limite diario de modelos gratis. "
+            "Agrega creditos o espera al reset del limite para seguir usando los modelos gratuitos."
+        )
+    if "falta la api key" in message or "api key" in message or "openrouter" in message and "secrets" in message:
+        return "Falta la API key de OpenRouter en Secrets o en el entorno del servidor."
+    if "connect" in name or "connection" in message or "timeout" in name or "timed out" in message:
+        return "No pude conectar con OpenRouter. Revisa red, proxy o acceso desde el servidor."
+    if "auth" in name or "401" in message or "403" in message or "unauthorized" in message:
+        return "La API key de OpenRouter no es válida o no tiene permisos para ese modelo."
+    if "badrequest" in name or "404" in message or "model" in message and ("not found" in message or "does not exist" in message):
+        return "El modelo configurado en OpenRouter no está disponible."
+    if intencion == INTENCION_ANALISIS_INDIVIDUAL:
+        return "No pude consultar OpenRouter para el análisis. Revisa la clave, red y disponibilidad del modelo."
+    return "No pude consultar OpenRouter. Revisa la clave, la red y la disponibilidad del modelo."
+
+
+def stream_respuesta(
+    historial: list[dict],
+    pregunta: str,
+    context_data: str,
+    intencion: str | None = None,
+):
+    """Generador de chunks para st.write_stream en dashboard.py"""
+    if intencion is None:
+        intencion = clasificar_intencion(pregunta, historial)
+    if intencion == INTENCION_AMBIGUA:
+        try:
+            yield _gemma_explain_result(historial, pregunta, intencion)
+        except Exception as e:
+            print(f"[OpenRouterError][stream_respuesta][gemma-ambiguous] {type(e).__name__}: {e}")
+            yield "No me quedo claro si quieres una respuesta general o un analisis de videos. Si quieres, dime si buscas ranking, analisis o recomendaciones."
+        return
+    if intencion in {INTENCION_CONVERSACION, INTENCION_PLATAFORMA}:
+        try:
+            yield _gemma_explain_result(historial, pregunta, intencion)
+        except Exception as e:
+            print(f"[OpenRouterError][stream_respuesta][gemma-chat] {type(e).__name__}: {e}")
+            yield _local_chat_reply(pregunta, intencion)
+        return
+    if intencion in {INTENCION_RANKING, INTENCION_RECOMENDACIONES, INTENCION_ANALISIS_INDIVIDUAL, INTENCION_COMPARACION}:
+        try:
+            structured = _nemotron_structured_result(historial, pregunta, context_data, intencion)
+        except Exception as e:
+            print(f"[OpenRouterError][stream_respuesta][nemotron] intent={intencion} error={type(e).__name__}: {e}")
+            if intencion == INTENCION_RANKING:
+                yield _local_ranking_reply(context_data, pregunta)
+            elif intencion == INTENCION_RECOMENDACIONES:
+                yield _local_recommendations_reply(context_data, pregunta)
+            elif intencion == INTENCION_ANALISIS_INDIVIDUAL:
+                yield _local_analysis_reply(context_data, pregunta)
+            else:
+                yield _local_ranking_reply(context_data, pregunta)
+            return
+
+        try:
+            yield _gemma_explain_result(historial, pregunta, intencion, structured)
+        except Exception as e:
+            print(f"[OpenRouterError][stream_respuesta][gemma-final] intent={intencion} error={type(e).__name__}: {e}")
+            if intencion == INTENCION_RANKING:
+                yield _local_ranking_reply(context_data, pregunta)
+            elif intencion == INTENCION_RECOMENDACIONES:
+                yield _local_recommendations_reply(context_data, pregunta)
+            elif intencion == INTENCION_ANALISIS_INDIVIDUAL:
+                yield _local_analysis_reply(context_data, pregunta)
+            else:
+                yield _openrouter_error_message(e, intencion)
+        return
+
+    yield _local_chat_reply(pregunta, INTENCION_CONVERSACION)
 
 
 if __name__ == "__main__":
