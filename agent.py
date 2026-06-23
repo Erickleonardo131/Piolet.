@@ -53,8 +53,11 @@ MODELOS_GRATUITOS = {
     "nemotron120b":   "nvidia/nemotron-3-super-120b-a12b:free",
     "nemotron-nano":  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
 }
-MODELO_ACTIVO = MODELOS_GRATUITOS["nemotron-nano"]
-MODELO_REPORTE = MODELOS_GRATUITOS["nemotron-nano"]
+MODELO_CONVERSACION = MODELOS_GRATUITOS["gemma4-31b"]
+MODELO_INSIGHTS = MODELOS_GRATUITOS["gemma4-31b"]
+MODELO_ANALISIS = MODELOS_GRATUITOS["nemotron120b"]
+MODELO_CONCLUSION = MODELOS_GRATUITOS["gemma4-31b"]
+MODELO_REPORTE = MODELO_CONCLUSION
 
 SYSTEM_PROMPT = """
 Eres un agente experto en marketing de contenido para marcas de wellness y recuperación atlética en México y LATAM.
@@ -69,22 +72,73 @@ Cuando analices datos:
 3. Encuentra oportunidades que la competencia no está aprovechando
 4. Da recomendaciones específicas: tipo de video, duración, hashtags, tono, horario
 5. Prioriza insights relevantes para el mercado mexicano
-
-Cuando analices un video específico, SIEMPRE incluye una sección llamada "HISTORIA DEL VIDEO" donde reconstruyas:
-- La narrativa o historia que cuenta el video (inicio, desarrollo, desenlace)
-- El arco emocional que provoca en el espectador (curiosidad, humor, sorpresa, aspiración, etc.)
-- El "gancho" (hook) de los primeros 3 segundos
-- El mensaje implícito o subconsciente que transmite la marca
-- Por qué esa historia conecta con la audiencia objetivo
-
-Esta sección debe aparecer ANTES de las recomendaciones para Piolet.
+Cuando analices un video, no describas escenas ni reconstruyas historias ficticias.
+Explica solo por qué funcionó o por qué no funcionó, usando evidencia y razones probables de engagement.
+Si la evidencia visual o textual no alcanza, dilo sin inventar.
 
 Si el usuario pide un reporte, escríbelo siempre en español, con tono profesional y claro.
 La sección final debe llamarse "CONCLUSION EJECUTIVA" y debe explicar, en pocas frases, por qué funcionaron los videos observados.
-La conclusión debe basarse en señales concretas del contenido: gancho, narrativa, ritmo, duración, formato, tema, audiencia y CTA.
+La conclusión debe basarse en evidencia y razones de engagement, no en escenas inventadas.
 Evita conclusiones genéricas o largas. Prioriza claridad y síntesis.
 
 Responde siempre en español. Sé directo y específico, no genérico.
+""".strip()
+
+
+PLATFORM_OVERVIEW = """
+Sobre Piolet Market Intelligence:
+- Es un dashboard interno para analizar videos de competencia en TikTok e Instagram.
+- Muestra ranking de videos, performance por cuenta, filtros por plataforma y views mínimas.
+- Permite charlar con el agente para resolver dudas.
+- Permite generar y descargar un reporte PDF.
+""".strip()
+
+SYSTEM_PROMPT_CONVERSACION = f"""
+Eres un asistente conversacional útil, natural y breve para Piolet Market Intelligence.
+Responde saludos, agradecimientos y preguntas generales con tono humano y claro.
+Si preguntan qué hace la plataforma, explica esto de forma simple:
+{PLATFORM_OVERVIEW}
+
+No inventes datos, tendencias ni conclusiones sobre videos si el usuario no las pidió.
+No analices videos por iniciativa propia.
+Responde siempre en español.
+""".strip()
+
+SYSTEM_PROMPT_ANALISIS = """
+Eres un analista experto en marketing de contenido para PIOLET, una marca mexicana de cold plunge / ice baths.
+Tu trabajo es analizar datos de redes sociales de la competencia y dar recomendaciones claras, concretas y accionables.
+
+Reglas:
+- Solo analiza videos cuando el usuario lo pida explícitamente.
+- No inventes datos, historias ni tendencias sin evidencia.
+- Si falta información, dilo con claridad.
+- No describas escenas, sonidos, gestos, movimientos de cámara ni emociones no observadas.
+- Prioriza psicología del usuario, curiosidad, identificación con el problema, autoridad, educación, emoción, credibilidad y razones probables de engagement.
+- Si la evidencia visual o textual no alcanza para concluir algo, escribe exactamente: "No hay suficiente evidencia para afirmar esa conclusión."
+- Cuando el usuario pida análisis, responde con este formato:
+  POR QUÉ FUNCIONA:
+  - Insight 1
+  - Insight 2
+  - Insight 3
+  EVIDENCIA:
+  - Views
+  - Likes
+  - Comentarios
+  - Shares
+  APLICACIÓN PARA PIOLET:
+  - Acción concreta
+- Máximo 120 palabras.
+- Si el usuario solo saluda o conversa, no hagas análisis.
+
+Si el usuario pide un reporte, escríbelo siempre en español, con tono profesional y claro.
+La sección final debe llamarse "CONCLUSION EJECUTIVA" y debe explicar por qué funcionaron los videos observados.
+La conclusión debe basarse en evidencia y razones de engagement, no en escenas inventadas.
+Responde siempre en español.
+""".strip()
+
+SYSTEM_PROMPT_AMBIGUO = """
+No quedó claro si el usuario quiere una respuesta general o un análisis de videos/datos.
+Pide una aclaración breve y natural, en español, sin analizar todavía.
 """.strip()
 
 
@@ -117,6 +171,175 @@ def _safe_chat_text(*, model: str, messages: list[dict], max_tokens: int, fallba
     except Exception:
         pass
     return fallback
+
+
+INTENCION_CONVERSACION = "conversation"
+INTENCION_RANKING = "ranking"
+INTENCION_COMPARACION = "comparison"
+INTENCION_RECOMENDACIONES = "recommendations"
+INTENCION_ANALISIS_INDIVIDUAL = "analysis_individual"
+INTENCION_ANALISIS = INTENCION_ANALISIS_INDIVIDUAL
+INTENCION_PLATAFORMA = "platform"
+INTENCION_AMBIGUA = "ambiguous"
+
+
+def _strip_accents(text: str) -> str:
+    return "".join(
+        ch for ch in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(ch)
+    )
+
+
+def _normalizar_texto(texto: str) -> str:
+    texto = _strip_accents((texto or "").strip().lower())
+    texto = re.sub(r"\s+", " ", texto)
+    return texto
+
+
+def clasificar_intencion(pregunta: str, historial: list[dict] | None = None) -> str:
+    texto = _normalizar_texto(pregunta)
+    if not texto:
+        return INTENCION_CONVERSACION
+
+    greetings = (
+        "hola", "buenas", "buenos dias", "buenas tardes", "buenas noches",
+        "que tal", "que onda", "hey", "saludos",
+    )
+    thanks = ("gracias", "muchas gracias", "te agradezco", "agradezco")
+    bye = ("adios", "hasta luego", "nos vemos", "bye", "chao", "cuidate")
+    platform_phrases = (
+        "que hace la plataforma", "para que sirve", "como funciona",
+        "que puedo hacer", "que hace piolet", "que hace este dashboard",
+        "explicame la plataforma", "que es piolet", "dashboard",
+        "reporte pdf", "descargar pdf", "filtros", "videos analizados",
+        "cuentas analizadas",
+    )
+    ranking_phrases = (
+        "mejor desempeno", "mejor rendimiento", "funcionan mejor",
+        "funciona mejor", "mejores videos", "top 5", "top videos",
+        "mas virales", "mas viral", "ranking", "desempeno",
+        "cuentas tienen mejor", "cuentas con mejor", "cuentas mas virales",
+        "videos funcionan mejor", "cuales fueron los mas virales",
+        "cuales son los mas virales", "cuentas tienen mejor desempeno",
+    )
+    comparison_phrases = (
+        "compar", "vs", "contra", "diferencia", "entre tiktok e instagram",
+        "entre cuentas", "entre plataformas", "cual plataforma", "que plataforma",
+        "mejor que", "peor que", "por plataforma", "comparativo",
+    )
+    recommendation_phrases = (
+        "que deberia copiar", "deberia copiar", "recomendaciones",
+        "que tendencias observas", "tendencias observas", "que harias",
+        "que publicaria", "que publicar", "como mejorar", "sugerencias",
+        "ideas de contenido", "ideas", "accionables", "optimizar",
+    )
+    analysis_phrases = (
+        "analiza este video", "analiza ese video", "dame la historia",
+        "historia de este video", "historia del video", "explica el hook",
+        "explica este video", "analisis individual", "arco emocional",
+        "mensaje implicito", "narrativa", "hook del video", "gancho",
+        "analiza", "analisis", "analizar", "por que se hizo viral",
+        "por que funciona", "video especifico", "este video", "ese video",
+    )
+
+    if texto in greetings or any(texto.startswith(item + " ") for item in greetings):
+        return INTENCION_CONVERSACION
+    if texto in thanks or texto in bye:
+        return INTENCION_CONVERSACION
+    if any(phrase in texto for phrase in platform_phrases):
+        return INTENCION_PLATAFORMA
+    if any(phrase in texto for phrase in ranking_phrases):
+        return INTENCION_RANKING
+    if any(phrase in texto for phrase in comparison_phrases):
+        return INTENCION_COMPARACION
+    if any(phrase in texto for phrase in recommendation_phrases):
+        return INTENCION_RECOMENDACIONES
+    if re.fullmatch(r"(este|ese|aqui|ahi)\s+(video|contenido|reel|post|clip)", texto):
+        return INTENCION_ANALISIS_INDIVIDUAL
+    if any(phrase in texto for phrase in analysis_phrases):
+        return INTENCION_ANALISIS_INDIVIDUAL
+    if "?" in texto and len(texto.split()) <= 4:
+        return INTENCION_CONVERSACION
+    return INTENCION_CONVERSACION
+
+
+def _system_prompt_for_intent(intencion: str) -> str:
+    if intencion == INTENCION_RANKING:
+        return """
+Eres un analista de rendimiento de video.
+Responde solo con ranking o comparativos breves basados en los datos disponibles.
+Reglas:
+- Si preguntan por videos o cuentas que funcionan mejor, devuelve 3 a 5 elementos máximo.
+- Incluye métricas reales del dataset: views, likes, comments, engagement_rate y viral_score cuando estén disponibles.
+- Explica en una frase breve por que aparecen arriba.
+- No inventes historias ni escenas.
+- No inventes datos que no estén en el contexto.
+Responde en español.
+""".strip()
+    if intencion == INTENCION_COMPARACION:
+        return """
+Eres un analista comparativo.
+Responde con diferencias claras entre cuentas, plataformas o grupos.
+Reglas:
+- Compara solo con evidencia del contexto.
+- Prioriza tablas cortas, bullets o un resumen breve.
+- Explica la diferencia principal y una implicacion accionable.
+- No inventes historias ni escenas.
+Responde en español.
+""".strip()
+    if intencion == INTENCION_RECOMENDACIONES:
+        return """
+Eres un estratega de contenido.
+Responde con recomendaciones accionables, sin historia completa del video.
+Reglas:
+- Da insights concretos y aplicables.
+- Enfocate en que copiar, que probar y que evitar.
+- Si hay evidencia, menciona por que funciona.
+- No inventes historias ni escenas salvo que el usuario lo pida explicitamente.
+Responde en español.
+""".strip()
+    if intencion == INTENCION_ANALISIS_INDIVIDUAL:
+        return SYSTEM_PROMPT_ANALISIS
+    if intencion == INTENCION_AMBIGUA:
+        return SYSTEM_PROMPT_AMBIGUO
+    if intencion == INTENCION_PLATAFORMA:
+        return SYSTEM_PROMPT_CONVERSACION
+    return SYSTEM_PROMPT_CONVERSACION
+
+
+def _build_user_message(
+    pregunta: str,
+    context_data: str,
+    intencion: str,
+) -> str:
+    if intencion in {
+        INTENCION_RANKING,
+        INTENCION_COMPARACION,
+        INTENCION_RECOMENDACIONES,
+        INTENCION_ANALISIS_INDIVIDUAL,
+    }:
+        return f"{pregunta}\n\n[DATOS]\n{context_data}"
+    return pregunta
+
+
+def _model_for_intent(intencion: str) -> str:
+    if intencion in {
+        INTENCION_RANKING,
+        INTENCION_COMPARACION,
+        INTENCION_RECOMENDACIONES,
+    }:
+        return MODELO_INSIGHTS
+    if intencion == INTENCION_ANALISIS_INDIVIDUAL:
+        return MODELO_ANALISIS
+    return MODELO_CONVERSACION
+
+
+def _max_tokens_for_intent(intencion: str) -> int:
+    if intencion == INTENCION_ANALISIS_INDIVIDUAL:
+        return 1200
+    if intencion in {INTENCION_RANKING, INTENCION_COMPARACION, INTENCION_RECOMENDACIONES}:
+        return 900
+    return 800
 
 
 def _extraer_contenido(choice) -> str:
@@ -212,7 +435,7 @@ def _detalle_video_nemotron(row: pd.Series) -> str:
     )
     try:
         resp = client.chat.completions.create(
-            model=MODELO_REPORTE,
+            model=MODELO_ANALISIS,
             messages=[
                 {"role": "system", "content": "Responde solo en español y solo con el texto final."},
                 {"role": "user", "content": prompt},
@@ -273,7 +496,7 @@ def _detalle_video_nemotron_v2(row: pd.Series) -> str:
 
     try:
         resp = client.chat.completions.create(
-            model=MODELO_REPORTE,
+            model=MODELO_ANALISIS,
             messages=[
                 {"role": "system", "content": "Responde solo en español y solo con el texto final."},
                 {"role": "user", "content": prompt},
@@ -304,8 +527,109 @@ def _detalle_video_nemotron_v2(row: pd.Series) -> str:
     return _inferir_motivo_video(str(row.get("description", "")))
 
 
+def _analisis_resultados_video(row: pd.Series) -> str:
+    client = get_client()
+    descripcion = str(row.get("description", "")).strip()
+    hashtags = str(row.get("hashtags", "")).strip()
+    views = int(row.get("views", 0))
+    likes = int(row.get("likes", 0))
+    comments = int(row.get("comments", 0))
+    shares = int(row.get("shares", 0))
+    viral_score = float(row.get("viral_score", 0))
+    pilares = _detectar_pilares_video(row)
+
+    contexto = (
+        f"Cuenta: {row.get('account', 'unknown')}\n"
+        f"Views: {views}\n"
+        f"Likes: {likes}\n"
+        f"Comentarios: {comments}\n"
+        f"Shares: {shares}\n"
+        f"Viral score: {viral_score:.2f}\n"
+        f"Descripcion: {descripcion[:240]}\n"
+        f"Hashtags: {hashtags[:180]}\n"
+        f"Pilares detectados: {', '.join(pilares)}\n"
+        f"URL: {row.get('url', '')}"
+    )
+    prompt = (
+        "Analiza por que obtuvo resultados, no describas el video.\n"
+        "Reglas obligatorias:\n"
+        "- Prohibido inventar escenas, sonidos, gestos, movimientos de camara o emociones no observadas.\n"
+        "- Toda afirmacion debe estar respaldada por una observacion explicita del contexto.\n"
+        "- Si la evidencia es insuficiente, responde exactamente: 'No hay suficiente evidencia para afirmar esa conclusión.'\n"
+        "- Prioriza psicologia del usuario, curiosidad, identificacion con el problema, autoridad, educacion, emocion, credibilidad y razones probables de engagement.\n"
+        "- Devuelve solo este formato:\n"
+        "POR QUE FUNCIONA:\n"
+        "- Insight 1\n"
+        "- Insight 2\n"
+        "- Insight 3\n"
+        "EVIDENCIA:\n"
+        f"- Views: {views}\n"
+        f"- Likes: {likes}\n"
+        f"- Comentarios: {comments}\n"
+        f"- Shares: {shares}\n"
+        "APLICACION PARA PIOLET:\n"
+        "- Accion concreta\n"
+        "Maximo 120 palabras.\n\n"
+        f"{contexto}"
+    )
+
+    def _fallback() -> str:
+        if views <= 0 and likes <= 0 and comments <= 0 and shares <= 0 and not descripcion and not hashtags:
+            return "No hay suficiente evidencia para afirmar esa conclusión."
+        insights = []
+        if viral_score >= 2:
+            insights.append("El rendimiento sugiere interes rapido o una propuesta que detiene el scroll.")
+        if likes > 0 or comments > 0 or shares > 0:
+            insights.append("La interaccion indica que el contenido conecta con una necesidad, aspiracion o prueba social.")
+        if any("educativo" in p or "cientifico" in p for p in pilares):
+            insights.append("La explicacion o el beneficio concreto ayudan a construir autoridad y confianza.")
+        elif any("prueba social" in p or "credibilidad" in p for p in pilares):
+            insights.append("La credibilidad aparente reduce friccion y vuelve mas facil compartir o considerar la compra.")
+        elif any("promocion" in p or "llamada a la accion" in p for p in pilares):
+            insights.append("La urgencia comercial puede elevar la accion inmediata.")
+        else:
+            insights.append("La evidencia disponible no permite afirmar una causa visual especifica.")
+        return (
+            "POR QUE FUNCIONA:\n"
+            f"- {insights[0]}\n"
+            f"- {insights[1] if len(insights) > 1 else 'No hay suficiente evidencia para afirmar esa conclusión.'}\n"
+            f"- {insights[2] if len(insights) > 2 else 'No hay suficiente evidencia para afirmar esa conclusión.'}\n"
+            "EVIDENCIA:\n"
+            f"- Views: {views}\n"
+            f"- Likes: {likes}\n"
+            f"- Comentarios: {comments}\n"
+            f"- Shares: {shares}\n"
+            "APLICACION PARA PIOLET:\n"
+            "- Replicar el angulo con un beneficio claro y una accion concreta."
+        )
+
+    try:
+        resp = client.chat.completions.create(
+            model=MODELO_REPORTE,
+            messages=[
+                {"role": "system", "content": "Responde en espanol. No describas escenas. No inventes informacion. Devuelve solo el formato pedido y maximo 120 palabras."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=220,
+        )
+        text = _normalize_for_pdf((resp.choices[0].message.content or "").strip())
+        if not text:
+            return _fallback()
+        lowered = text.lower()
+        banned_terms = ("escena", "cámara", "camara", "mano", "pie", "sonido", "gesto", "movimiento", "temblor", "narrativa", "hook", "historia del video", "arco emocional")
+        if any(term in lowered for term in banned_terms):
+            return _fallback()
+        if len(text.split()) > 120:
+            return _fallback()
+        if "no hay suficiente informacion" in lowered or "no hay suficiente evidencia" in lowered:
+            return "No hay suficiente evidencia para afirmar esa conclusión."
+        return text
+    except Exception:
+        return _fallback()
+
+
 def _detalle_video_nemotron_v2(row: pd.Series) -> str:
-    return _detalle_video_descriptivo(row)
+    return _analisis_resultados_video(row)
 
 
 def build_report_pdf(report_text: str, output_path: str | None = None) -> bytes:
@@ -668,9 +992,9 @@ def _conclusion_reporte_nemotron(top_lines: list[str], oportunidades: list[str])
     if conclusion:
         return conclusion
     return (
-        "Los videos funcionaron porque combinaron un gancho inmediato, una narrativa clara y un formato corto que se consume rapido. "
-        "La mezcla de humor, educacion y prueba social elevó el alcance y dio razones concretas para compartir. "
-        "Piolet debe replicar esa formula con piezas breves, beneficios especificos y un CTA directo."
+        "Los videos funcionaron por una combinacion de interes rapido, claridad del mensaje y evidencia que apoya la credibilidad. "
+        "La interaccion observada sugiere que el contenido responde a una necesidad concreta y facilita que el usuario lo considere relevante. "
+        "Piolet deberia replicar el angulo con una propuesta simple, un beneficio claro y una accion concreta."
     )
 
 
@@ -687,9 +1011,9 @@ def _conclusion_reporte_nemotron(top_lines: list[str], oportunidades: list[str])
 
     def _fallback() -> str:
         return (
-            "Los videos funcionaron porque mezclan un gancho inmediato con una historia simple y un mensaje que se entiende en segundos. "
-            "La combinación de bienestar, educación, prueba social y urgencia comercial da razones concretas para detenerse, mirar y compartir. "
-            "Piolet debe replicar esa formula con piezas breves, un beneficio principal por video y un CTA directo."
+            "Los videos funcionaron por una combinacion de interes rapido, claridad del mensaje y evidencia que apoya la credibilidad. "
+            "La interaccion observada sugiere que el contenido responde a una necesidad concreta y facilita que el usuario lo considere relevante. "
+            "Piolet deberia replicar el angulo con una propuesta simple, un beneficio claro y una accion concreta."
         )
 
     conclusion = _safe_chat_text(
@@ -711,7 +1035,7 @@ def agente_interactivo():
     client = get_client()
 
     print("\n" + "="*60)
-    print(f" AGENTE PIOLET — {MODELO_ACTIVO}")
+    print(f" AGENTE PIOLET — {MODELO_CONVERSACION}")
     print("="*60)
 
     if not os.path.exists(DATA_PATH):
@@ -737,25 +1061,31 @@ def agente_interactivo():
         if not pregunta:
             continue
 
-        user_message = (
-            f"{pregunta}\n\n[DATOS]\n{context_data}"
-            if not historial else pregunta
-        )
+        intencion = clasificar_intencion(pregunta, historial)
+        user_message = _build_user_message(pregunta, context_data, intencion)
         historial.append({"role": "user", "content": user_message})
 
         print("\nAgente: ", end="", flush=True)
         respuesta_completa = ""
 
-        stream = client.chat.completions.create(
-            model=MODELO_ACTIVO,
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}] + historial,
-            max_tokens=1500,
-            stream=True,
-        )
-        for chunk in stream:
-            texto = chunk.choices[0].delta.content or ""
-            print(texto, end="", flush=True)
-            respuesta_completa += texto
+        if intencion == INTENCION_AMBIGUA:
+            respuesta_completa = (
+                "No me quedó claro si quieres una respuesta general o un análisis de videos. "
+                "Si quieres, te respondo normal o analizo los videos del tablero."
+            )
+            print(respuesta_completa, end="", flush=True)
+        else:
+            model = _model_for_intent(intencion)
+            stream = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": _system_prompt_for_intent(intencion)}] + historial,
+                max_tokens=_max_tokens_for_intent(intencion),
+                stream=True,
+            )
+            for chunk in stream:
+                texto = chunk.choices[0].delta.content or ""
+                print(texto, end="", flush=True)
+                respuesta_completa += texto
 
         print("\n")
         historial.append({"role": "assistant", "content": respuesta_completa})
@@ -822,32 +1152,51 @@ def analisis_automatico(df_base: pd.DataFrame | None = None) -> str:
     return reporte
 
 
-def stream_respuesta(historial: list[dict], pregunta: str, context_data: str):
+def stream_respuesta(
+    historial: list[dict],
+    pregunta: str,
+    context_data: str,
+    intencion: str | None = None,
+):
     """Generador de chunks para st.write_stream en dashboard.py"""
-    user_message = (
-        f"{pregunta}\n\n[DATOS]\n{context_data}"
-        if len(historial) == 0 else pregunta
-    )
+    if intencion is None:
+        intencion = clasificar_intencion(pregunta, historial)
+    user_message = _build_user_message(pregunta, context_data, intencion)
     mensajes = (
-        [{"role": "system", "content": SYSTEM_PROMPT}]
+        [{"role": "system", "content": _system_prompt_for_intent(intencion)}]
         + historial
         + [{"role": "user", "content": user_message}]
     )
 
-    # Modelos de razonamiento no soportan streaming en OpenRouter; usar non-stream
+    if intencion == INTENCION_AMBIGUA:
+        yield (
+            "No me quedó claro si quieres una respuesta general o un análisis de videos. "
+            "Si quieres, te respondo normal o analizo los videos del tablero."
+        )
+        return
+
     try:
         client = get_client()
+        model = _model_for_intent(intencion)
         resp = client.chat.completions.create(
-            model=MODELO_ACTIVO,
+            model=model,
             messages=mensajes,
-            max_tokens=4000,
+            max_tokens=_max_tokens_for_intent(intencion),
         )
         yield _extraer_contenido(resp.choices[0])
     except Exception:
-        yield (
-            "No pude consultar el modelo en este momento por un limite temporal del proveedor. "
-            "Puedo seguir trabajando con los datos locales cargados en el dashboard."
-        )
+        if intencion in {
+            INTENCION_RANKING,
+            INTENCION_COMPARACION,
+            INTENCION_RECOMENDACIONES,
+            INTENCION_ANALISIS_INDIVIDUAL,
+        }:
+            yield (
+                "No pude consultar el modelo de analisis en este momento. "
+                "Puedo seguir trabajando con los datos locales cargados en el dashboard."
+            )
+        else:
+            yield "No pude responder en este momento. Si quieres, intenta de nuevo en unos segundos."
 
 
 if __name__ == "__main__":

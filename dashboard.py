@@ -366,7 +366,7 @@ st.markdown(
     }
 
     .login-title {
-        font-size: clamp(2rem, 4vw, 3rem);
+        font-size: clamp(2.25rem, 4.4vw, 3.25rem);
         line-height: 0.96;
         font-weight: 700;
         letter-spacing: -0.05em;
@@ -375,7 +375,7 @@ st.markdown(
     }
 
     .login-subtitle {
-        font-size: 0.98rem;
+        font-size: 1.08rem;
         opacity: 0.75;
         margin-top: 1rem;
         margin-bottom: 1.35rem;
@@ -695,7 +695,32 @@ def render_tables(df_filtrado: pd.DataFrame) -> None:
 
 
 def render_agent(context_data: str, df_filtrado: pd.DataFrame) -> None:
-    from agent import analisis_automatico, build_report_pdf, stream_respuesta
+    import agent as agent_mod
+
+    def _fallback_clasificar_intencion(pregunta: str, historial: list[dict] | None = None) -> str:
+        texto = (pregunta or "").strip().lower()
+        if not texto:
+            return "conversation"
+        if any(palabra in texto for palabra in ("hola", "buenas", "gracias", "cómo estás", "como estas")):
+            return "conversation"
+        if any(palabra in texto for palabra in ("mejor desempeño", "mejor rendimiento", "funcionan mejor", "mejores videos", "top 5", "más virales", "mas virales", "ranking", "cuentas tienen mejor")):
+            return "ranking"
+        if any(palabra in texto for palabra in ("compar", "vs", "contra", "entre tiktok e instagram", "entre cuentas", "entre plataformas", "mejor que", "peor que")):
+            return "comparison"
+        if any(palabra in texto for palabra in ("debería copiar", "deberia copiar", "recomendaciones", "qué tendencias observas", "que tendencias observas", "qué harías", "que harias", "ideas de contenido", "como mejorar", "sugerencias")):
+            return "recommendations"
+        if any(palabra in texto for palabra in ("analiza este video", "dame la historia", "historia de este video", "explica el hook", "arco emocional", "mensaje implícito", "mensaje implicito", "narrativa", "análisis individual", "analisis individual", "por que se hizo viral", "este video", "ese video")):
+            return "analysis_individual"
+        if any(palabra in texto for palabra in ("analiza", "análisis", "analisis", "viral", "viralidad", "tendencias", "patrones", "recomend")):
+            return "recommendations"
+        if any(palabra in texto for palabra in ("plataforma", "dashboard", "qué hace", "que hace", "cómo funciona", "como funciona")):
+            return "platform"
+        return "conversation"
+
+    analisis_automatico = agent_mod.analisis_automatico
+    build_report_pdf = agent_mod.build_report_pdf
+    stream_respuesta = agent_mod.stream_respuesta
+    clasificar_intencion = getattr(agent_mod, "clasificar_intencion", _fallback_clasificar_intencion)
 
     st.divider()
     if "historial" not in st.session_state:
@@ -725,16 +750,22 @@ def render_agent(context_data: str, df_filtrado: pd.DataFrame) -> None:
             enviar = st.form_submit_button("↑", use_container_width=True, type="secondary")
 
     if enviar and pregunta.strip():
+        intencion = clasificar_intencion(pregunta, st.session_state.historial)
         with st.chat_message("user"):
             st.write(pregunta)
         with st.chat_message("assistant"):
             respuesta = st.write_stream(
-                stream_respuesta(st.session_state.historial, pregunta, context_data)
+                stream_respuesta(
+                    st.session_state.historial,
+                    pregunta,
+                    context_data,
+                )
             )
 
+        data_intents = {"ranking", "comparison", "recommendations", "analysis_individual", "analysis"}
         user_msg = (
             f"{pregunta}\n\n[DATOS]\n{context_data}"
-            if not st.session_state.historial else pregunta
+            if intencion in data_intents else pregunta
         )
         st.session_state.historial.append({"role": "user", "content": user_msg})
         st.session_state.historial.append({"role": "assistant", "content": respuesta})
