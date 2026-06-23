@@ -717,6 +717,18 @@ def render_agent(context_data: str, df_filtrado: pd.DataFrame) -> None:
             return "platform"
         return "conversation"
 
+    def _clear_report_state() -> None:
+        st.session_state.reporte_texto = ""
+        st.session_state.reporte_pdf = None
+        for report_path in (
+            Path("datos/reporte_automatico.txt"),
+            Path("output/pdf/reporte_automatico.pdf"),
+        ):
+            try:
+                report_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
     analisis_automatico = agent_mod.analisis_automatico
     build_report_pdf = agent_mod.build_report_pdf
     stream_respuesta = agent_mod.stream_respuesta
@@ -791,6 +803,11 @@ def render_agent(context_data: str, df_filtrado: pd.DataFrame) -> None:
             mime="application/pdf",
             use_container_width=True,
         )
+
+    if st.session_state.reporte_texto or st.session_state.reporte_pdf:
+        if st.button("Limpiar reporte", type="secondary", use_container_width=True):
+            _clear_report_state()
+            st.rerun()
 
     if st.session_state.reporte_texto:
         st.markdown("### Reporte generado")
